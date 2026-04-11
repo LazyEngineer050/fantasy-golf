@@ -47,6 +47,9 @@ export default function Leaderboard({
   const [view, setView] = useState<'teams' | 'players'>('teams')
   // scoreHistory[i] = { userId -> total_strokes } snapshot
   const scoreHistory = useRef<Record<string, number>[]>([])
+  // Last detected movement per user: { userId -> { dir, detectedAt } }
+  const movementCache = useRef<Record<string, { dir: 'up' | 'down'; detectedAt: number }>>({})
+  const PERSIST_MS = 5 * 60 * 1000 // keep icon for 5 minutes after last movement
 
   function pushScoreSnapshot(current: TeamStanding[]) {
     const snapshot: Record<string, number> = {}
@@ -54,6 +57,22 @@ export default function Leaderboard({
       if (s.total_strokes != null) snapshot[s.user_id] = s.total_strokes
     }
     scoreHistory.current = [...scoreHistory.current, snapshot].slice(-HISTORY_CAP)
+
+    // Update movement cache
+    if (scoreHistory.current.length >= 2) {
+      const oldest = scoreHistory.current[0]
+      const now = Date.now()
+      for (const s of current) {
+        if (s.total_strokes == null) continue
+        const prev = oldest[s.user_id]
+        if (prev == null) continue
+        if (s.total_strokes < prev) {
+          movementCache.current[s.user_id] = { dir: 'up', detectedAt: now }
+        } else if (s.total_strokes > prev) {
+          movementCache.current[s.user_id] = { dir: 'down', detectedAt: now }
+        }
+      }
+    }
   }
 
   // Seed history from initial server data
@@ -62,14 +81,11 @@ export default function Leaderboard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function getMovement(userId: string, currentScore: number | null): 'up' | 'down' | null {
-    if (currentScore == null || scoreHistory.current.length < 2) return null
-    const oldest = scoreHistory.current[0][userId]
-    if (oldest == null) return null
-    // Score going down = improving = fire; score going up = worsening = cold
-    if (currentScore < oldest) return 'up'
-    if (currentScore > oldest) return 'down'
-    return null
+  function getMovement(userId: string): 'up' | 'down' | null {
+    const cached = movementCache.current[userId]
+    if (!cached) return null
+    if (Date.now() - cached.detectedAt > PERSIST_MS) return null
+    return cached.dir
   }
 
   // Keep a ref to standings so the poll closure always sees the latest value
@@ -216,7 +232,7 @@ export default function Leaderboard({
               return standings.map((team, idx) => {
                 const isLeader = idx === 0 && team.total_strokes != null
                 const isCurrentUser = team.user_id === currentUserId
-                const movement = getMovement(team.user_id, team.total_strokes)
+                const movement = getMovement(team.user_id)
                 const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
 
                 // Turd: worst current-round score on the team, only if over par today
@@ -332,32 +348,11 @@ export default function Leaderboard({
   )
 }
 
-// ─── Team colours (one per team, cycles if more than 8) ──────────────────────
-
-const TEAM_COLORS = [
-  { bg: 'bg-blue-900/60',   text: 'text-blue-300',   border: 'border-blue-700',   row: 'border-l-blue-500'   },
-  { bg: 'bg-purple-900/60', text: 'text-purple-300', border: 'border-purple-700', row: 'border-l-purple-500' },
-  { bg: 'bg-orange-900/60', text: 'text-orange-300', border: 'border-orange-700', row: 'border-l-orange-500' },
-  { bg: 'bg-pink-900/60',   text: 'text-pink-300',   border: 'border-pink-700',   row: 'border-l-pink-500'   },
-  { bg: 'bg-teal-900/60',   text: 'text-teal-300',   border: 'border-teal-700',   row: 'border-l-teal-500'   },
-  { bg: 'bg-yellow-900/60', text: 'text-yellow-300', border: 'border-yellow-700', row: 'border-l-yellow-500' },
-  { bg: 'bg-red-900/60',    text: 'text-red-300',    border: 'border-red-700',    row: 'border-l-red-500'    },
-  { bg: 'bg-cyan-900/60',   text: 'text-cyan-300',   border: 'border-cyan-700',   row: 'border-l-cyan-500'   },
-]
-
 // ─── Player Board ─────────────────────────────────────────────────────────────
 
 function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
-  // Build team → colour index map (stable: sorted by rank/index)
-  const teamColorMap = new Map(
-    standings.map((s, i) => [s.user_id, TEAM_COLORS[i % TEAM_COLORS.length]])
-  )
-  const ownerColorMap = new Map(
-    standings.map((s, i) => [s.display_name, TEAM_COLORS[i % TEAM_COLORS.length]])
-  )
-
   const allPicks = standings.flatMap((s) =>
-    s.picks.map((p) => ({ ...p, owner: s.display_name, userId: s.user_id }))
+    s.picks.map((p) => ({ ...p, owner: s.display_name }))
   )
 
   const rows = allPicks
@@ -370,71 +365,46 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
     return <p className="text-center text-gray-500 py-12">No player scores yet.</p>
   }
 
-  // Legend
-  const teams = standings.map((s, i) => ({ name: s.display_name, color: TEAM_COLORS[i % TEAM_COLORS.length] }))
-
   return (
-    <div className="space-y-4">
-      {/* Team colour legend */}
-      <div className="flex flex-wrap gap-2">
-        {teams.map((t) => (
-          <span key={t.name} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${t.color.bg} ${t.color.text} ${t.color.border}`}>
-            {t.name}
-          </span>
-        ))}
-      </div>
-
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800 bg-gray-900/80">
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">Pos</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
-              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
-              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Today</th>
-              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Thru</th>
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-800 bg-gray-900/80">
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">Pos</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Today</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Thru</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Owner</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-800/60">
+          {rows.map((p, i) => (
+            <tr key={p.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
+              <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
+              <td className="px-4 py-2.5 font-medium text-gray-100">{p.player_name}</td>
+              <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
+                {fmtScore(p.total_strokes)}
+              </td>
+              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
+                {fmtScore(p.today_strokes)}
+              </td>
+              <td className="px-4 py-2.5 text-center text-gray-400 text-xs">{p.thru ?? '—'}</td>
+              <td className="px-4 py-2.5 text-gray-400 text-xs pr-4">{p.owner}</td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800/60">
-            {rows.map((p, i) => {
-              const color = ownerColorMap.get(p.owner)
-              return (
-                <tr key={p.player_id} className={`hover:bg-gray-800/50 transition-colors border-l-4 ${color?.row ?? 'border-l-gray-700'}`}>
-                  <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="font-medium text-gray-100">{p.player_name}</div>
-                    <div className={`text-xs mt-0.5 ${color?.text ?? 'text-gray-500'}`}>{p.owner}</div>
-                  </td>
-                  <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
-                    {fmtScore(p.total_strokes)}
-                  </td>
-                  <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
-                    {fmtScore(p.today_strokes)}
-                  </td>
-                  <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">
-                    {p.thru ?? '—'}
-                  </td>
-                </tr>
-              )
-            })}
-            {unstarted.map((p) => {
-              const color = ownerColorMap.get(p.owner)
-              return (
-                <tr key={p.player_id} className={`opacity-40 border-l-4 ${color?.row ?? 'border-l-gray-700'}`}>
-                  <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
-                  <td className="px-4 py-2.5">
-                    <div className="text-gray-500">{p.player_name}</div>
-                    <div className={`text-xs mt-0.5 ${color?.text ?? 'text-gray-600'}`}>{p.owner}</div>
-                  </td>
-                  <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-                  <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-                  <td className="px-4 py-2.5 text-center text-gray-600 pr-4">—</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+          ))}
+          {unstarted.map((p) => (
+            <tr key={p.player_id} className="bg-gray-900 opacity-40">
+              <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
+              <td className="px-4 py-2.5 text-gray-500">{p.player_name}</td>
+              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+              <td className="px-4 py-2.5 text-gray-500 text-xs pr-4">{p.owner}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
