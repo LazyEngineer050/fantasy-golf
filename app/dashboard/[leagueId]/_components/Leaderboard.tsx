@@ -1,9 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { TeamStanding } from '@/lib/types'
+
+// Keep a rolling history of rank snapshots (capped at 4).
+// Movement is determined by comparing current rank to the oldest snapshot.
+const HISTORY_CAP = 4
 
 interface Props {
   leagueId: string
@@ -40,6 +44,31 @@ export default function Leaderboard({
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  // rankHistory[i] = { userId -> rank } snapshot
+  const rankHistory = useRef<Record<string, number>[]>([])
+
+  function pushRankSnapshot(current: TeamStanding[]) {
+    const snapshot: Record<string, number> = {}
+    for (const s of current) {
+      if (s.rank != null) snapshot[s.user_id] = s.rank
+    }
+    rankHistory.current = [...rankHistory.current, snapshot].slice(-HISTORY_CAP)
+  }
+
+  // Seed history from initial server data
+  useEffect(() => {
+    pushRankSnapshot(initialStandings)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function getMovement(userId: string, currentRank: number | null): 'up' | 'down' | null {
+    if (currentRank == null || rankHistory.current.length < 2) return null
+    const oldest = rankHistory.current[0][userId]
+    if (oldest == null) return null
+    if (currentRank < oldest) return 'up'
+    if (currentRank > oldest) return 'down'
+    return null
+  }
 
   // Poll /api/refresh every 30 seconds to pull fresh ESPN scores into the DB.
   // Realtime subscriptions below then push the DB changes to the UI instantly.
@@ -63,13 +92,15 @@ export default function Leaderboard({
           setLastUpdate(new Date())
           setStandings((prev) => {
             const updated = payload.new as { user_id: string; total_strokes: number | null; rank: number | null }
-            return prev
+            const next = prev
               .map((s) =>
                 s.user_id === updated.user_id
                   ? { ...s, total_strokes: updated.total_strokes, rank: updated.rank }
                   : s
               )
               .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+            pushRankSnapshot(next)
+            return next
           })
         }
       )
@@ -125,6 +156,7 @@ export default function Leaderboard({
             {standings.map((team, idx) => {
               const isLeader = idx === 0 && team.total_strokes != null
               const isCurrentUser = team.user_id === currentUserId
+              const movement = getMovement(team.user_id, team.rank)
               // Sort picks by draft round
               const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
 
@@ -146,13 +178,19 @@ export default function Leaderboard({
                     }`}>
                       {isLeader ? '🏆' : (team.rank ?? '—')}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
                       <p className={`font-semibold truncate ${
                         isLeader ? 'text-yellow-300' : isCurrentUser ? 'text-green-300' : 'text-gray-100'
                       }`}>
                         {team.display_name}
                         {isCurrentUser && <span className="ml-2 text-xs text-gray-500 font-normal">(you)</span>}
                       </p>
+                      {movement === 'up' && (
+                        <span title="Moving up" className="text-xl leading-none animate-pulse">🔥</span>
+                      )}
+                      {movement === 'down' && (
+                        <span title="Moving down" className="text-xl leading-none animate-pulse">🥶</span>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
                       <span className={`text-2xl font-bold tabular-nums ${
