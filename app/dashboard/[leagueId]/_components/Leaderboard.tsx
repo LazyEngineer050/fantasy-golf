@@ -44,6 +44,7 @@ export default function Leaderboard({
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [view, setView] = useState<'teams' | 'players'>('teams')
   // scoreHistory[i] = { userId -> total_strokes } snapshot
   const scoreHistory = useRef<Record<string, number>[]>([])
 
@@ -157,7 +158,23 @@ export default function Leaderboard({
           )}
           <p className="text-gray-400 text-sm mt-1">{tournamentName}</p>
         </div>
-        <div className="text-right shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
+          {/* View toggle */}
+          <div className="flex rounded-lg overflow-hidden border border-gray-700 text-sm font-medium">
+            <button
+              onClick={() => setView('teams')}
+              className={`px-3 py-1.5 transition-colors ${view === 'teams' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'}`}
+            >
+              Teams
+            </button>
+            <button
+              onClick={() => setView('players')}
+              className={`px-3 py-1.5 transition-colors ${view === 'players' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'}`}
+            >
+              Players
+            </button>
+          </div>
+          <div className="text-right">
           <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
             leagueStatus === 'live' ? 'bg-green-800 text-green-200'
             : leagueStatus === 'completed' ? 'bg-gray-700 text-gray-300'
@@ -168,11 +185,14 @@ export default function Leaderboard({
           {lastUpdate && (
             <p className="text-xs text-gray-600 mt-1">Updated {lastUpdate.toLocaleTimeString()}</p>
           )}
+          </div>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-6">
-        {standings.length === 0 ? (
+        {view === 'players' ? (
+          <PlayerBoard standings={standings} />
+        ) : standings.length === 0 ? (
           <p className="text-center text-gray-500 py-12">
             No standings yet — scores will appear once the tournament is live.
           </p>
@@ -308,6 +328,71 @@ export default function Leaderboard({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── Player Board ─────────────────────────────────────────────────────────────
+
+function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
+  // Flatten all picks, attach owner name, sort by total_strokes ascending
+  const rows = standings
+    .flatMap((s) =>
+      s.picks.map((p) => ({ ...p, owner: s.display_name }))
+    )
+    .filter((p) => p.total_strokes !== null)
+    .sort((a, b) => (a.total_strokes ?? 0) - (b.total_strokes ?? 0))
+
+  const unstarted = standings
+    .flatMap((s) => s.picks.map((p) => ({ ...p, owner: s.display_name })))
+    .filter((p) => p.total_strokes === null)
+
+  if (rows.length === 0 && unstarted.length === 0) {
+    return <p className="text-center text-gray-500 py-12">No player scores yet.</p>
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-800 bg-gray-900/80">
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">Pos</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Today</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Thru</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Owner</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-800/60">
+          {rows.map((p, i) => (
+            <tr key={p.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
+              <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
+              <td className="px-4 py-2.5 font-medium text-gray-100">{p.player_name}</td>
+              <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
+                {fmtScore(p.total_strokes)}
+              </td>
+              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
+                {fmtScore(p.today_strokes)}
+              </td>
+              <td className="px-4 py-2.5 text-center text-gray-400 text-xs">
+                {p.thru ?? '—'}
+              </td>
+              <td className="px-4 py-2.5 text-gray-400 text-xs pr-4">{p.owner}</td>
+            </tr>
+          ))}
+          {unstarted.map((p) => (
+            <tr key={p.player_id} className="bg-gray-900 opacity-50">
+              <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
+              <td className="px-4 py-2.5 text-gray-500">{p.player_name}</td>
+              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+              <td className="px-4 py-2.5 text-gray-500 text-xs pr-4">{p.owner}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
