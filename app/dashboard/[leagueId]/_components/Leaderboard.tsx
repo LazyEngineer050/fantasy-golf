@@ -366,41 +366,41 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-800 bg-gray-900/80">
             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">Pos</th>
             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Today</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Thru</th>
-            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Owner</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Thru</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-800/60">
           {rows.map((p, i) => (
             <tr key={p.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
               <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
-              <td className="px-4 py-2.5 font-medium text-gray-100">{p.player_name}</td>
+              <td className="px-4 py-2.5 font-medium text-gray-100 whitespace-nowrap">{p.player_name}</td>
+              <td className="px-4 py-2.5 text-gray-300 whitespace-nowrap">{p.owner}</td>
               <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
                 {fmtScore(p.total_strokes)}
               </td>
               <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
                 {fmtScore(p.today_strokes)}
               </td>
-              <td className="px-4 py-2.5 text-center text-gray-400 text-xs">{p.thru ?? '—'}</td>
-              <td className="px-4 py-2.5 text-gray-400 text-xs pr-4">{p.owner}</td>
+              <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">{p.thru ?? '—'}</td>
             </tr>
           ))}
           {unstarted.map((p) => (
             <tr key={p.player_id} className="bg-gray-900 opacity-40">
               <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
-              <td className="px-4 py-2.5 text-gray-500">{p.player_name}</td>
+              <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.player_name}</td>
+              <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.owner}</td>
               <td className="px-4 py-2.5 text-center text-gray-600">—</td>
               <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-              <td className="px-4 py-2.5 text-gray-500 text-xs pr-4">{p.owner}</td>
+              <td className="px-4 py-2.5 text-center text-gray-600 pr-4">—</td>
             </tr>
           ))}
         </tbody>
