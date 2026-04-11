@@ -159,11 +159,11 @@ export default function Leaderboard({
               const movement = getMovement(team.user_id, team.rank)
               // Sort picks by draft round
               const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
-              // Find the worst player on the team (highest total_strokes), but only flag if over par
-              const scoredPicks = picks.filter((p) => p.total_strokes !== null)
-              const worstScore = scoredPicks.length > 0 ? Math.max(...scoredPicks.map((p) => p.total_strokes!)) : null
-              const turdPlayerId = worstScore !== null && worstScore > 0
-                ? scoredPicks.find((p) => p.total_strokes === worstScore)?.player_id
+              // Turd: worst current-round score on the team, only if over par today
+              const todayPicks = picks.filter((p) => p.today_strokes !== null)
+              const worstToday = todayPicks.length > 0 ? Math.max(...todayPicks.map((p) => p.today_strokes!)) : null
+              const turdPlayerId = worstToday !== null && worstToday > 0
+                ? todayPicks.find((p) => p.today_strokes === worstToday)?.player_id
                 : null
 
               return (
