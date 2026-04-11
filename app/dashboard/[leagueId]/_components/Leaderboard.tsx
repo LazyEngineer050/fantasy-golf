@@ -184,40 +184,57 @@ export default function Leaderboard({
                             <td colSpan={7} className="px-4 py-3 text-gray-600 text-xs">No players drafted</td>
                           </tr>
                         ) : (
-                          picks.map((pick) => (
-                            <tr key={pick.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
-                              <td className="px-4 py-2.5">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-gray-600 font-medium shrink-0">R{pick.draft_round}</span>
-                                  <span className="text-gray-100 font-medium">{pick.player_name}</span>
-                                  {pick.thru && pick.thru !== 'F' && (
-                                    <span className="text-xs text-gray-500">· {pick.thru}</span>
+                          picks.map((pick) => {
+                            // Determine which round is currently active for this player
+                            // Active = highest round with a score that isn't finished
+                            const roundScores = [pick.r1_strokes, pick.r2_strokes, pick.r3_strokes, pick.r4_strokes]
+                            const activeRound = pick.thru && pick.thru !== 'F'
+                              ? roundScores.filter(s => s !== null).length  // 0-indexed active round = count of completed rounds... actually 1-based
+                              : null
+                            // Which column (1–4) is the live one?
+                            // It's the last round that has a score when thru is mid-round
+                            const liveRound = pick.thru && pick.thru !== 'F'
+                              ? [pick.r1_strokes, pick.r2_strokes, pick.r3_strokes, pick.r4_strokes]
+                                  .reduce((last, s, i) => s !== null ? i + 1 : last, 0)
+                              : null
+
+                            function roundCell(score: number | null, roundNum: number) {
+                              const isLive = liveRound === roundNum
+                              return (
+                                <td key={roundNum} className={`px-3 py-2.5 text-center whitespace-nowrap ${isLive ? 'bg-green-950/30' : ''}`}>
+                                  <div className={`tabular-nums font-medium ${scoreClass(score)}`}>
+                                    {fmtScore(score)}
+                                  </div>
+                                  {isLive && (
+                                    <div className="text-xs text-green-500 font-medium">
+                                      {pick.thru === '0' ? 'Tee' : `Hole ${pick.thru}`}
+                                    </div>
                                   )}
-                                  {pick.thru === 'F' && pick.r4_strokes === null && (
-                                    <span className="text-xs text-gray-600">· F</span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-center text-gray-400 text-xs whitespace-nowrap">
-                                {pick.position ?? '—'}
-                              </td>
-                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r1_strokes)}`}>
-                                {fmtScore(pick.r1_strokes)}
-                              </td>
-                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r2_strokes)}`}>
-                                {fmtScore(pick.r2_strokes)}
-                              </td>
-                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r3_strokes)}`}>
-                                {fmtScore(pick.r3_strokes)}
-                              </td>
-                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r4_strokes)}`}>
-                                {fmtScore(pick.r4_strokes)}
-                              </td>
-                              <td className={`px-3 py-2.5 text-center tabular-nums font-bold pr-4 ${scoreClass(pick.total_strokes)}`}>
-                                {fmtScore(pick.total_strokes)}
-                              </td>
-                            </tr>
-                          ))
+                                </td>
+                              )
+                            }
+
+                            return (
+                              <tr key={pick.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
+                                <td className="px-4 py-2.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-600 font-medium shrink-0">R{pick.draft_round}</span>
+                                    <span className="text-gray-100 font-medium">{pick.player_name}</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-center text-gray-400 text-xs whitespace-nowrap">
+                                  {pick.position ?? '—'}
+                                </td>
+                                {roundCell(pick.r1_strokes, 1)}
+                                {roundCell(pick.r2_strokes, 2)}
+                                {roundCell(pick.r3_strokes, 3)}
+                                {roundCell(pick.r4_strokes, 4)}
+                                <td className={`px-3 py-2.5 text-center tabular-nums font-bold pr-4 ${scoreClass(pick.total_strokes)}`}>
+                                  {fmtScore(pick.total_strokes)}
+                                </td>
+                              </tr>
+                            )
+                          })
                         )}
                       </tbody>
                     </table>
