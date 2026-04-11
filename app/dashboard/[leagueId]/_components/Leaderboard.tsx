@@ -162,12 +162,12 @@ export default function Leaderboard({
                 ? allPicks.find((p) => p.total_strokes === bestScore)?.player_id
                 : null
 
-              // Which rounds have any data globally? Show most recent first, skip unplayed.
+              // Current round = highest round number that has any data globally
               const roundKeys = [4, 3, 2, 1] as const
-              const activeRounds = roundKeys.filter((r) =>
+              const currentRound = roundKeys.find((r) =>
                 standings.some((s) => s.picks.some((p) => p[`r${r}_strokes` as 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes'] !== null))
-              )
-              const colSpan = 2 + activeRounds.length // Total + Player + rounds
+              ) ?? null
+              const colSpan = 3 // Player | Total | Active round
 
               return standings.map((team, idx) => {
                 const isLeader = idx === 0 && team.total_strokes != null
@@ -221,11 +221,11 @@ export default function Leaderboard({
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-t border-gray-800 bg-gray-900/60">
-                            <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Total</th>
                             <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-full">Player</th>
-                            {activeRounds.map((r) => (
-                              <th key={r} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">R{r}</th>
-                            ))}
+                            <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Total</th>
+                            {currentRound && (
+                              <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap pr-4">R{currentRound}</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-800/60">
@@ -236,50 +236,40 @@ export default function Leaderboard({
                           ) : (
                             picks.map((pick) => {
                               const isOverallLeader = overallLeaderPlayerId === pick.player_id
-
-                              // Which round is currently in progress for this player?
-                              const liveRound = pick.thru && pick.thru !== 'F'
-                                ? ([pick.r1_strokes, pick.r2_strokes, pick.r3_strokes, pick.r4_strokes]
-                                    .reduce((last, s, i) => s !== null ? i + 1 : last, 0))
+                              const isLive = pick.thru && pick.thru !== 'F'
+                              const currentRoundScore = currentRound
+                                ? pick[`r${currentRound}_strokes` as 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes']
                                 : null
-
-                              const roundScore = (r: 1 | 2 | 3 | 4) =>
-                                pick[`r${r}_strokes` as 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes']
 
                               return (
                                 <tr key={pick.player_id} className={`hover:bg-gray-800/50 transition-colors ${isOverallLeader ? 'bg-yellow-950/40' : 'bg-gray-900'}`}>
-                                  {/* Total — 1st column */}
-                                  <td className={`px-3 py-2.5 text-center tabular-nums font-bold whitespace-nowrap ${scoreClass(pick.total_strokes)}`}>
-                                    {fmtScore(pick.total_strokes)}
-                                  </td>
-                                  {/* Player name with icons to the left */}
+                                  {/* Player name then icons */}
                                   <td className="px-4 py-2.5">
                                     <div className="flex items-center gap-1.5">
-                                      {isOverallLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
-                                      {turdPlayerId === pick.player_id && <span title="Killing the team" className="text-base leading-none">💩</span>}
-                                      <span className="text-xs text-gray-600 font-medium">R{pick.draft_round}</span>
                                       <span className={`font-medium ${isOverallLeader ? 'text-yellow-300' : 'text-gray-100'}`}>
                                         {pick.player_name}
                                       </span>
+                                      {isOverallLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
+                                      {turdPlayerId === pick.player_id && <span title="Killing the team" className="text-base leading-none">💩</span>}
                                     </div>
                                   </td>
-                                  {/* Rounds: most recent first, only active ones */}
-                                  {activeRounds.map((r) => {
-                                    const score = roundScore(r)
-                                    const isLive = liveRound === r
-                                    return (
-                                      <td key={r} className={`px-3 py-2.5 text-center whitespace-nowrap ${isLive ? 'bg-green-950/30' : ''}`}>
-                                        <div className={`tabular-nums font-medium ${scoreClass(score)}`}>
-                                          {fmtScore(score)}
+                                  {/* Total */}
+                                  <td className={`px-3 py-2.5 text-center tabular-nums font-bold whitespace-nowrap ${scoreClass(pick.total_strokes)}`}>
+                                    {fmtScore(pick.total_strokes)}
+                                  </td>
+                                  {/* Active round */}
+                                  {currentRound && (
+                                    <td className={`px-3 py-2.5 text-center whitespace-nowrap pr-4 ${isLive ? 'bg-green-950/30' : ''}`}>
+                                      <div className={`tabular-nums font-medium ${scoreClass(currentRoundScore)}`}>
+                                        {fmtScore(currentRoundScore)}
+                                      </div>
+                                      {isLive && (
+                                        <div className="text-xs text-green-500 font-medium">
+                                          {pick.thru === '0' ? 'Tee' : `Hole ${pick.thru}`}
                                         </div>
-                                        {isLive && (
-                                          <div className="text-xs text-green-500 font-medium">
-                                            {pick.thru === '0' ? 'Tee' : `Hole ${pick.thru}`}
-                                          </div>
-                                        )}
-                                      </td>
-                                    )
-                                  })}
+                                      )}
+                                    </td>
+                                  )}
                                 </tr>
                               )
                             })
