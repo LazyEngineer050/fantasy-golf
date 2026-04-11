@@ -332,67 +332,109 @@ export default function Leaderboard({
   )
 }
 
+// ─── Team colours (one per team, cycles if more than 8) ──────────────────────
+
+const TEAM_COLORS = [
+  { bg: 'bg-blue-900/60',   text: 'text-blue-300',   border: 'border-blue-700',   row: 'border-l-blue-500'   },
+  { bg: 'bg-purple-900/60', text: 'text-purple-300', border: 'border-purple-700', row: 'border-l-purple-500' },
+  { bg: 'bg-orange-900/60', text: 'text-orange-300', border: 'border-orange-700', row: 'border-l-orange-500' },
+  { bg: 'bg-pink-900/60',   text: 'text-pink-300',   border: 'border-pink-700',   row: 'border-l-pink-500'   },
+  { bg: 'bg-teal-900/60',   text: 'text-teal-300',   border: 'border-teal-700',   row: 'border-l-teal-500'   },
+  { bg: 'bg-yellow-900/60', text: 'text-yellow-300', border: 'border-yellow-700', row: 'border-l-yellow-500' },
+  { bg: 'bg-red-900/60',    text: 'text-red-300',    border: 'border-red-700',    row: 'border-l-red-500'    },
+  { bg: 'bg-cyan-900/60',   text: 'text-cyan-300',   border: 'border-cyan-700',   row: 'border-l-cyan-500'   },
+]
+
 // ─── Player Board ─────────────────────────────────────────────────────────────
 
 function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
-  // Flatten all picks, attach owner name, sort by total_strokes ascending
-  const rows = standings
-    .flatMap((s) =>
-      s.picks.map((p) => ({ ...p, owner: s.display_name }))
-    )
+  // Build team → colour index map (stable: sorted by rank/index)
+  const teamColorMap = new Map(
+    standings.map((s, i) => [s.user_id, TEAM_COLORS[i % TEAM_COLORS.length]])
+  )
+  const ownerColorMap = new Map(
+    standings.map((s, i) => [s.display_name, TEAM_COLORS[i % TEAM_COLORS.length]])
+  )
+
+  const allPicks = standings.flatMap((s) =>
+    s.picks.map((p) => ({ ...p, owner: s.display_name, userId: s.user_id }))
+  )
+
+  const rows = allPicks
     .filter((p) => p.total_strokes !== null)
     .sort((a, b) => (a.total_strokes ?? 0) - (b.total_strokes ?? 0))
 
-  const unstarted = standings
-    .flatMap((s) => s.picks.map((p) => ({ ...p, owner: s.display_name })))
-    .filter((p) => p.total_strokes === null)
+  const unstarted = allPicks.filter((p) => p.total_strokes === null)
 
   if (rows.length === 0 && unstarted.length === 0) {
     return <p className="text-center text-gray-500 py-12">No player scores yet.</p>
   }
 
+  // Legend
+  const teams = standings.map((s, i) => ({ name: s.display_name, color: TEAM_COLORS[i % TEAM_COLORS.length] }))
+
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-800 bg-gray-900/80">
-            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">Pos</th>
-            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Today</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Thru</th>
-            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Owner</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-800/60">
-          {rows.map((p, i) => (
-            <tr key={p.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
-              <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
-              <td className="px-4 py-2.5 font-medium text-gray-100">{p.player_name}</td>
-              <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
-                {fmtScore(p.total_strokes)}
-              </td>
-              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
-                {fmtScore(p.today_strokes)}
-              </td>
-              <td className="px-4 py-2.5 text-center text-gray-400 text-xs">
-                {p.thru ?? '—'}
-              </td>
-              <td className="px-4 py-2.5 text-gray-400 text-xs pr-4">{p.owner}</td>
+    <div className="space-y-4">
+      {/* Team colour legend */}
+      <div className="flex flex-wrap gap-2">
+        {teams.map((t) => (
+          <span key={t.name} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${t.color.bg} ${t.color.text} ${t.color.border}`}>
+            {t.name}
+          </span>
+        ))}
+      </div>
+
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-800 bg-gray-900/80">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">Pos</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Player</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Today</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide pr-4">Thru</th>
             </tr>
-          ))}
-          {unstarted.map((p) => (
-            <tr key={p.player_id} className="bg-gray-900 opacity-50">
-              <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
-              <td className="px-4 py-2.5 text-gray-500">{p.player_name}</td>
-              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-              <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-              <td className="px-4 py-2.5 text-gray-500 text-xs pr-4">{p.owner}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-800/60">
+            {rows.map((p, i) => {
+              const color = ownerColorMap.get(p.owner)
+              return (
+                <tr key={p.player_id} className={`hover:bg-gray-800/50 transition-colors border-l-4 ${color?.row ?? 'border-l-gray-700'}`}>
+                  <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-gray-100">{p.player_name}</div>
+                    <div className={`text-xs mt-0.5 ${color?.text ?? 'text-gray-500'}`}>{p.owner}</div>
+                  </td>
+                  <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
+                    {fmtScore(p.total_strokes)}
+                  </td>
+                  <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
+                    {fmtScore(p.today_strokes)}
+                  </td>
+                  <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">
+                    {p.thru ?? '—'}
+                  </td>
+                </tr>
+              )
+            })}
+            {unstarted.map((p) => {
+              const color = ownerColorMap.get(p.owner)
+              return (
+                <tr key={p.player_id} className={`opacity-40 border-l-4 ${color?.row ?? 'border-l-gray-700'}`}>
+                  <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
+                  <td className="px-4 py-2.5">
+                    <div className="text-gray-500">{p.player_name}</div>
+                    <div className={`text-xs mt-0.5 ${color?.text ?? 'text-gray-600'}`}>{p.owner}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+                  <td className="px-4 py-2.5 text-center text-gray-600">—</td>
+                  <td className="px-4 py-2.5 text-center text-gray-600 pr-4">—</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
