@@ -49,7 +49,7 @@ export default function Leaderboard({
   const scoreHistory = useRef<Record<string, number>[]>([])
   // Last detected movement per user: { userId -> { dir, detectedAt } }
   const movementCache = useRef<Record<string, { dir: 'up' | 'down'; detectedAt: number }>>({})
-  const PERSIST_MS = 5 * 60 * 1000 // keep icon for 5 minutes after last movement
+  const PERSIST_MS = 20 * 60 * 1000 // keep icon for 20 minutes after last movement
 
   function pushScoreSnapshot(current: TeamStanding[]) {
     const snapshot: Record<string, number> = {}
@@ -222,12 +222,14 @@ export default function Leaderboard({
                 ? allPicks.find((p) => p.total_strokes === bestScore)?.player_id
                 : null
 
-              // Current round = highest round number that has any data globally
+              // All played rounds, most recent first (only rounds with any data)
               const roundKeys = [4, 3, 2, 1] as const
-              const currentRound = roundKeys.find((r) =>
-                standings.some((s) => s.picks.some((p) => p[`r${r}_strokes` as 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes'] !== null))
-              ) ?? null
-              const colSpan = 3 // Player | Total | Active round
+              type RKey = 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes'
+              const playedRounds = roundKeys.filter((r) =>
+                standings.some((s) => s.picks.some((p) => p[`r${r}_strokes` as RKey] !== null))
+              )
+              const currentRound = playedRounds[0] ?? null // highest round with data
+              const colSpan = 2 + playedRounds.length
 
               return standings.map((team, idx) => {
                 const isLeader = idx === 0 && team.total_strokes != null
@@ -289,9 +291,9 @@ export default function Leaderboard({
                           <tr className="border-t border-gray-800 bg-gray-900/60">
                             <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-full">Player</th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Total</th>
-                            {currentRound && (
-                              <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap pr-4">R{currentRound}</th>
-                            )}
+                            {playedRounds.map((r) => (
+                              <th key={r} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap last:pr-4">R{r}</th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-800/60">
@@ -303,14 +305,11 @@ export default function Leaderboard({
                             picks.map((pick) => {
                               const isOverallLeader = overallLeaderPlayerId === pick.player_id
                               const isLive = pick.thru && pick.thru !== 'F'
-                              const currentRoundScore = currentRound
-                                ? pick[`r${currentRound}_strokes` as 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes']
-                                : null
 
                               return (
                                 <tr key={pick.player_id} className={`hover:bg-gray-800/50 transition-colors ${isOverallLeader ? 'bg-yellow-950/40' : 'bg-gray-900'}`}>
                                   {/* Player name then icons */}
-                                  <td className="px-4 py-2.5">
+                                  <td className="px-4 py-2.5 whitespace-nowrap">
                                     <div className="flex items-center gap-1.5">
                                       <span className={`font-medium ${isOverallLeader ? 'text-yellow-300' : 'text-gray-100'}`}>
                                         {pick.player_name}
@@ -323,19 +322,23 @@ export default function Leaderboard({
                                   <td className={`px-3 py-2.5 text-center tabular-nums font-bold whitespace-nowrap ${scoreClass(pick.total_strokes)}`}>
                                     {fmtScore(pick.total_strokes)}
                                   </td>
-                                  {/* Active round */}
-                                  {currentRound && (
-                                    <td className={`px-3 py-2.5 text-center whitespace-nowrap pr-4 ${isLive ? 'bg-green-950/30' : ''}`}>
-                                      <div className={`tabular-nums font-medium ${scoreClass(currentRoundScore)}`}>
-                                        {fmtScore(currentRoundScore)}
-                                      </div>
-                                      {isLive && (
-                                        <div className="text-xs text-green-500 font-medium">
-                                          {pick.thru === '0' ? 'Tee' : `Hole ${pick.thru}`}
+                                  {/* All played rounds, most recent first */}
+                                  {playedRounds.map((r, ri) => {
+                                    const score = pick[`r${r}_strokes` as RKey]
+                                    const isActiveRound = r === currentRound && isLive
+                                    return (
+                                      <td key={r} className={`px-3 py-2.5 text-center whitespace-nowrap ${ri === playedRounds.length - 1 ? 'pr-4' : ''} ${isActiveRound ? 'bg-green-950/30' : ''}`}>
+                                        <div className={`tabular-nums font-medium ${scoreClass(score)}`}>
+                                          {fmtScore(score)}
                                         </div>
-                                      )}
-                                    </td>
-                                  )}
+                                        {isActiveRound && (
+                                          <div className="text-xs text-green-500 font-medium">
+                                            {pick.thru === '0' ? 'Tee' : `Hole ${pick.thru}`}
+                                          </div>
+                                        )}
+                                      </td>
+                                    )
+                                  })}
                                 </tr>
                               )
                             })
