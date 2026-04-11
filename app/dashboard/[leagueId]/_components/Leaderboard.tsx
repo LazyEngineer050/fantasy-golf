@@ -277,6 +277,9 @@ export default function Leaderboard({
                                     <span className={`font-medium ${isOverallLeader ? 'text-yellow-300' : 'text-gray-100'}`}>
                                       {pick.player_name}
                                     </span>
+                                    <span className={`text-sm font-bold tabular-nums ${scoreClass(pick.total_strokes)}`}>
+                                      {fmtScore(pick.total_strokes)}
+                                    </span>
                                     {isOverallLeader && (
                                       <span title="Tournament leader" className="text-base leading-none">⭐</span>
                                     )}
