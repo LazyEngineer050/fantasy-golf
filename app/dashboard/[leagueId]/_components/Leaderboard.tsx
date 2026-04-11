@@ -71,14 +71,38 @@ export default function Leaderboard({
     return null
   }
 
-  // Poll /api/refresh every 30 seconds to pull fresh ESPN scores into the DB.
-  // Realtime subscriptions below then push the DB changes to the UI instantly.
+  // Keep a ref to standings so the poll closure always sees the latest value
+  const standingsRef = useRef(standings)
+  useEffect(() => { standingsRef.current = standings }, [standings])
+
+  // Poll every 30 seconds: refresh ESPN data, then fetch updated scores and push a snapshot.
+  // This drives the fire/ice movement icons without needing Realtime.
   useEffect(() => {
-    const poll = () => fetch('/api/refresh', { method: 'POST' }).catch(() => {})
+    const poll = async () => {
+      await fetch('/api/refresh', { method: 'POST' }).catch(() => {})
+
+      type ScoreRow = { user_id: string; total_strokes: number | null; rank: number | null }
+      const res = await fetch(`/api/scores?leagueId=${leagueId}`).catch(() => null)
+      if (!res?.ok) return
+      const fresh: ScoreRow[] = await res.json()
+
+      setStandings((prev) => {
+        const next = prev
+          .map((s) => {
+            const u = fresh.find((f) => f.user_id === s.user_id)
+            return u ? { ...s, total_strokes: u.total_strokes, rank: u.rank } : s
+          })
+          .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+        pushScoreSnapshot(next)
+        return next
+      })
+      setLastUpdate(new Date())
+    }
+
     poll() // immediate on mount
     const interval = setInterval(poll, 30_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [leagueId])
 
   // Supabase Realtime subscription
   useEffect(() => {
