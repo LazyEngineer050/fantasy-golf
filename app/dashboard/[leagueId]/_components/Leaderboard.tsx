@@ -1,0 +1,224 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import type { TeamStanding } from '@/lib/types'
+
+interface Props {
+  leagueId: string
+  leagueName: string
+  tournamentName: string
+  leagueStatus: 'drafting' | 'live' | 'completed'
+  standings: TeamStanding[]
+  currentUserId: string | null
+  allLeagues: { id: string; name: string }[]
+}
+
+function fmtScore(n: number | null): string {
+  if (n === null) return '—'
+  if (n === 0) return 'E'
+  return n > 0 ? `+${n}` : String(n)
+}
+
+function scoreClass(n: number | null): string {
+  if (n === null) return 'text-gray-500'
+  if (n < 0) return 'text-red-400'
+  if (n > 0) return 'text-blue-400'
+  return 'text-gray-300'
+}
+
+export default function Leaderboard({
+  leagueId,
+  leagueName,
+  tournamentName,
+  leagueStatus,
+  standings: initialStandings,
+  currentUserId,
+  allLeagues,
+}: Props) {
+  const router = useRouter()
+  const [standings, setStandings] = useState(initialStandings)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+
+  // Supabase Realtime subscription
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient()
+
+    const channel = supabase
+      .channel(`dashboard:${leagueId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'team_scores', filter: `league_id=eq.${leagueId}` },
+        (payload) => {
+          setLastUpdate(new Date())
+          setStandings((prev) => {
+            const updated = payload.new as { user_id: string; total_strokes: number | null; rank: number | null }
+            return prev
+              .map((s) =>
+                s.user_id === updated.user_id
+                  ? { ...s, total_strokes: updated.total_strokes, rank: updated.rank }
+                  : s
+              )
+              .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+          })
+        }
+      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'player_scores' }, () => {
+        setLastUpdate(new Date())
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [leagueId])
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Header */}
+      <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          {allLeagues.length > 1 ? (
+            <select
+              value={leagueId}
+              onChange={(e) => router.push(`/dashboard/${e.target.value}`)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-lg font-bold text-green-400 focus:outline-none focus:border-green-500 cursor-pointer"
+            >
+              {allLeagues.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          ) : (
+            <h1 className="text-2xl font-bold text-green-400">{leagueName}</h1>
+          )}
+          <p className="text-gray-400 text-sm mt-1">{tournamentName}</p>
+        </div>
+        <div className="text-right shrink-0">
+          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+            leagueStatus === 'live' ? 'bg-green-800 text-green-200'
+            : leagueStatus === 'completed' ? 'bg-gray-700 text-gray-300'
+            : 'bg-yellow-900 text-yellow-200'
+          }`}>
+            {leagueStatus.toUpperCase()}
+          </span>
+          {lastUpdate && (
+            <p className="text-xs text-gray-600 mt-1">Updated {lastUpdate.toLocaleTimeString()}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto p-4 md:p-6">
+        {standings.length === 0 ? (
+          <p className="text-center text-gray-500 py-12">
+            No standings yet — scores will appear once the tournament is live.
+          </p>
+        ) : (
+          <div className="space-y-6">
+            {standings.map((team, idx) => {
+              const isLeader = idx === 0 && team.total_strokes != null
+              const isCurrentUser = team.user_id === currentUserId
+              // Sort picks by draft round
+              const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
+
+              return (
+                <div
+                  key={team.user_id}
+                  className={`rounded-xl border overflow-hidden ${
+                    isLeader ? 'border-yellow-500 shadow-lg shadow-yellow-900/20'
+                    : isCurrentUser ? 'border-green-700'
+                    : 'border-gray-800'
+                  }`}
+                >
+                  {/* Team header */}
+                  <div className={`flex items-center gap-4 px-4 py-3 ${
+                    isLeader ? 'bg-yellow-950' : 'bg-gray-900'
+                  }`}>
+                    <div className={`w-9 h-9 flex items-center justify-center rounded-full font-bold text-base shrink-0 ${
+                      isLeader ? 'bg-yellow-500 text-gray-900' : 'bg-gray-800 text-gray-300'
+                    }`}>
+                      {isLeader ? '🏆' : (team.rank ?? '—')}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-semibold truncate ${
+                        isLeader ? 'text-yellow-300' : isCurrentUser ? 'text-green-300' : 'text-gray-100'
+                      }`}>
+                        {team.display_name}
+                        {isCurrentUser && <span className="ml-2 text-xs text-gray-500 font-normal">(you)</span>}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className={`text-2xl font-bold tabular-nums ${
+                        isLeader ? 'text-yellow-300' : scoreClass(team.total_strokes)
+                      }`}>
+                        {fmtScore(team.total_strokes)}
+                      </span>
+                      <p className="text-xs text-gray-500">total</p>
+                    </div>
+                  </div>
+
+                  {/* Players table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-t border-gray-800 bg-gray-900/60">
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-full">Player</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Pos</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">R1</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">R2</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">R3</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">R4</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap pr-4">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800/60">
+                        {picks.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-3 text-gray-600 text-xs">No players drafted</td>
+                          </tr>
+                        ) : (
+                          picks.map((pick) => (
+                            <tr key={pick.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-gray-600 font-medium shrink-0">R{pick.draft_round}</span>
+                                  <span className="text-gray-100 font-medium">{pick.player_name}</span>
+                                  {pick.thru && pick.thru !== 'F' && (
+                                    <span className="text-xs text-gray-500">· {pick.thru}</span>
+                                  )}
+                                  {pick.thru === 'F' && pick.r4_strokes === null && (
+                                    <span className="text-xs text-gray-600">· F</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-center text-gray-400 text-xs whitespace-nowrap">
+                                {pick.position ?? '—'}
+                              </td>
+                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r1_strokes)}`}>
+                                {fmtScore(pick.r1_strokes)}
+                              </td>
+                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r2_strokes)}`}>
+                                {fmtScore(pick.r2_strokes)}
+                              </td>
+                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r3_strokes)}`}>
+                                {fmtScore(pick.r3_strokes)}
+                              </td>
+                              <td className={`px-3 py-2.5 text-center tabular-nums font-medium ${scoreClass(pick.r4_strokes)}`}>
+                                {fmtScore(pick.r4_strokes)}
+                              </td>
+                              <td className={`px-3 py-2.5 text-center tabular-nums font-bold pr-4 ${scoreClass(pick.total_strokes)}`}>
+                                {fmtScore(pick.total_strokes)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

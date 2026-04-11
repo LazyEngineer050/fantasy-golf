@@ -1,0 +1,152 @@
+/**
+ * ESPN Golf ingestion helpers — server-side only.
+ *
+ * The leaderboard endpoint (site.web.api.espn.com) requires internal ESPN
+ * network access and returns 404 publicly. All data comes from the scoreboard:
+ *   https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard
+ *
+ * Cut status is inferred via the "top 50 + ties" rule applied to 2-round totals.
+ */
+
+export interface EspnPlayer {
+  espnPlayerId: string
+  name: string
+  status: 'active' | 'cut' | 'wd'
+  totalStrokes: number | null   // relative to par, e.g. -12, +4, 0
+  todayStrokes: number | null   // relative to par for current round
+  thru: string | null           // e.g. "F", "9", "-"
+  position: string | null       // e.g. "1", "T5"
+  r1Strokes: number | null      // relative to par for round 1
+  r2Strokes: number | null
+  r3Strokes: number | null
+  r4Strokes: number | null
+}
+
+const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard'
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+  Accept: 'application/json',
+}
+
+interface RawLinescore {
+  value: number
+  displayValue: string
+  period: number
+  linescores?: RawLinescore[]   // nested hole-by-hole data when in progress
+}
+
+interface RawCompetitor {
+  id: string
+  order?: number
+  athlete?: { fullName?: string; displayName?: string; shortName?: string }
+  score?: string                // relative-to-par string, e.g. "-12", "+4", "E"
+  linescores?: RawLinescore[]
+}
+
+function parseRelPar(s: string | undefined | null): number | null {
+  if (!s) return null
+  if (s === 'E' || s === 'EVEN' || s === '-') return 0
+  const n = parseInt(s, 10)
+  return isNaN(n) ? null : n
+}
+
+function roundLinescore(linescores: RawLinescore[], period: number): RawLinescore | undefined {
+  return linescores.find((l) => l.period === period)
+}
+
+function determineCutLine(competitors: RawCompetitor[]): number {
+  // Build sorted list of 2-round totals (raw strokes, lower = better)
+  const totals = competitors
+    .map((c) => {
+      const r1 = roundLinescore(c.linescores ?? [], 1)?.value ?? 9999
+      const r2 = roundLinescore(c.linescores ?? [], 2)?.value ?? 9999
+      // Only include if player has completed 2 rounds
+      return r1 < 9999 && r2 < 9999 ? r1 + r2 : 9999
+    })
+    .filter((t) => t < 9999)
+    .sort((a, b) => a - b)
+
+  // Top 50 + ties: cut line = score of the 50th player
+  const cutIndex = Math.min(49, totals.length - 1)
+  return totals[cutIndex] ?? 9999
+}
+
+function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd' {
+  const r1 = roundLinescore(c.linescores ?? [], 1)?.value ?? 0
+  const r2 = roundLinescore(c.linescores ?? [], 2)?.value ?? 0
+
+  // No round scores at all → likely withdrew before the tournament
+  if (r1 === 0 && r2 === 0) return 'wd'
+
+  // Has r1 but no r2 → withdrew or incomplete (treat as wd)
+  if (r1 > 0 && r2 === 0) return 'wd'
+
+  return r1 + r2 <= cutLine ? 'active' : 'cut'
+}
+
+function inferThru(c: RawCompetitor): string | null {
+  // Find the current (highest) round linescore with actual data
+  const rounds = (c.linescores ?? []).filter((l) => l.value > 0).sort((a, b) => b.period - a.period)
+  const current = rounds[0]
+  if (!current) return null
+
+  // If round has hole-by-hole data, count completed holes
+  if (current.linescores?.length) {
+    const holesPlayed = current.linescores.length
+    return holesPlayed >= 18 ? 'F' : String(holesPlayed)
+  }
+
+  // Completed round (has value but no nested holes) → Finished
+  return 'F'
+}
+
+async function fetchScoreboard(): Promise<{ eventId: string; competitors: RawCompetitor[] } | null> {
+  const res = await fetch(SCOREBOARD_URL, { headers: HEADERS, cache: 'no-store' })
+  if (!res.ok) return null
+  const data = await res.json()
+  const event = data?.events?.[0]
+  if (!event) return null
+  const competitors: RawCompetitor[] = event?.competitions?.[0]?.competitors ?? []
+  return { eventId: event.id, competitors }
+}
+
+export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPlayer[]> {
+  const result = await fetchScoreboard()
+  if (!result) throw new Error('ESPN scoreboard fetch failed')
+
+  const { competitors } = result
+  if (competitors.length === 0) throw new Error('No competitors in ESPN scoreboard')
+
+  const cutLine = determineCutLine(competitors)
+
+  return competitors.map((c) => {
+    const r1 = roundLinescore(c.linescores ?? [], 1)
+    const r2 = roundLinescore(c.linescores ?? [], 2)
+    const r3 = roundLinescore(c.linescores ?? [], 3)
+    const r4 = roundLinescore(c.linescores ?? [], 4)
+    const currentRound = r4 ?? r3
+
+    // Today's score: relative-to-par displayValue of the active round
+    const todayStrokes = currentRound ? parseRelPar(currentRound.displayValue) : null
+
+    return {
+      espnPlayerId: c.id,
+      name: c.athlete?.displayName ?? c.athlete?.fullName ?? 'Unknown',
+      status: inferStatus(c, cutLine),
+      totalStrokes: parseRelPar(c.score),
+      todayStrokes,
+      thru: inferThru(c),
+      position: c.order != null ? String(c.order) : null,
+      r1Strokes: r1 ? parseRelPar(r1.displayValue) : null,
+      r2Strokes: r2 ? parseRelPar(r2.displayValue) : null,
+      r3Strokes: r3 ? parseRelPar(r3.displayValue) : null,
+      r4Strokes: r4 ? parseRelPar(r4.displayValue) : null,
+    }
+  })
+}
+
+/** Fetch the currently active PGA tour event ID from ESPN scoreboard */
+export async function fetchCurrentEspnEventId(): Promise<string | null> {
+  const result = await fetchScoreboard()
+  return result?.eventId ?? null
+}
