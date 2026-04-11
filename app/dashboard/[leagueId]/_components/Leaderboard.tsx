@@ -154,7 +154,15 @@ export default function Leaderboard({
           </p>
         ) : (
           <div className="space-y-6">
-            {standings.map((team, idx) => {
+            {(() => {
+              // Find the single best-scoring player across all teams
+              const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)
+              const bestScore = allPicks.length > 0 ? Math.min(...allPicks.map((p) => p.total_strokes!)) : null
+              const overallLeaderPlayerId = bestScore !== null
+                ? allPicks.find((p) => p.total_strokes === bestScore)?.player_id
+                : null
+
+              return standings.map((team, idx) => {
               const isLeader = idx === 0 && team.total_strokes != null
               const isCurrentUser = team.user_id === currentUserId
               const movement = getMovement(team.user_id, team.total_strokes)
@@ -259,12 +267,19 @@ export default function Leaderboard({
                               )
                             }
 
+                            const isOverallLeader = overallLeaderPlayerId === pick.player_id
+
                             return (
-                              <tr key={pick.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
+                              <tr key={pick.player_id} className={`hover:bg-gray-800/50 transition-colors ${isOverallLeader ? 'bg-yellow-950/40' : 'bg-gray-900'}`}>
                                 <td className="px-4 py-2.5">
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs text-gray-600 font-medium shrink-0">R{pick.draft_round}</span>
-                                    <span className="text-gray-100 font-medium">{pick.player_name}</span>
+                                    <span className={`font-medium ${isOverallLeader ? 'text-yellow-300' : 'text-gray-100'}`}>
+                                      {pick.player_name}
+                                    </span>
+                                    {isOverallLeader && (
+                                      <span title="Tournament leader" className="text-base leading-none">⭐</span>
+                                    )}
                                     {turdPlayerId === pick.player_id && (
                                       <span title="Killing the team" className="text-base leading-none">💩</span>
                                     )}
@@ -289,7 +304,8 @@ export default function Leaderboard({
                   </div>
                 </div>
               )
-            })}
+            })
+            })()}
           </div>
         )}
       </div>
