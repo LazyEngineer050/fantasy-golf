@@ -159,6 +159,12 @@ export default function Leaderboard({
               const movement = getMovement(team.user_id, team.rank)
               // Sort picks by draft round
               const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
+              // Find the worst player on the team (highest total_strokes), but only flag if over par
+              const scoredPicks = picks.filter((p) => p.total_strokes !== null)
+              const worstScore = scoredPicks.length > 0 ? Math.max(...scoredPicks.map((p) => p.total_strokes!)) : null
+              const turdPlayerId = worstScore !== null && worstScore > 0
+                ? scoredPicks.find((p) => p.total_strokes === worstScore)?.player_id
+                : null
 
               return (
                 <div
@@ -258,6 +264,9 @@ export default function Leaderboard({
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs text-gray-600 font-medium shrink-0">R{pick.draft_round}</span>
                                     <span className="text-gray-100 font-medium">{pick.player_name}</span>
+                                    {turdPlayerId === pick.player_id && (
+                                      <span title="Killing the team" className="text-base leading-none">💩</span>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-center text-gray-400 text-xs whitespace-nowrap">
