@@ -41,6 +41,15 @@ export default function Leaderboard({
   const [standings, setStandings] = useState(initialStandings)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
+  // Poll /api/refresh every 30 seconds to pull fresh ESPN scores into the DB.
+  // Realtime subscriptions below then push the DB changes to the UI instantly.
+  useEffect(() => {
+    const poll = () => fetch('/api/refresh', { method: 'POST' }).catch(() => {})
+    poll() // immediate on mount
+    const interval = setInterval(poll, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
   // Supabase Realtime subscription
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
