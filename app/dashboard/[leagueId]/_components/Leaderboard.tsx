@@ -233,7 +233,13 @@ export default function Leaderboard({
                 const isLeader = idx === 0 && team.total_strokes != null
                 const isCurrentUser = team.user_id === currentUserId
                 const movement = getMovement(team.user_id)
-                const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
+                // Sort by current score ascending; unscored players go to the bottom
+                const picks = [...team.picks].sort((a, b) => {
+                  if (a.total_strokes === null && b.total_strokes === null) return 0
+                  if (a.total_strokes === null) return 1
+                  if (b.total_strokes === null) return -1
+                  return a.total_strokes - b.total_strokes
+                })
 
                 // Turd: worst current-round score on the team, only if over par today
                 const todayPicks = picks.filter((p) => p.today_strokes !== null)
