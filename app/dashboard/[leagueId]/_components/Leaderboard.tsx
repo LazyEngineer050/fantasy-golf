@@ -47,9 +47,8 @@ export default function Leaderboard({
   const [view, setView] = useState<'teams' | 'players'>('teams')
   // scoreHistory[i] = { userId -> total_strokes } snapshot
   const scoreHistory = useRef<Record<string, number>[]>([])
-  // Last detected movement per user: { userId -> { dir, detectedAt } }
-  const movementCache = useRef<Record<string, { dir: 'up' | 'down'; detectedAt: number }>>({})
-  const PERSIST_MS = 20 * 60 * 1000 // keep icon for 20 minutes after last movement
+  // Derived movement map: userId -> 'up' | 'down' | null (recomputed after each snapshot)
+  const movementMap = useRef<Record<string, 'up' | 'down' | null>>({})
 
   function pushScoreSnapshot(current: TeamStanding[]) {
     const snapshot: Record<string, number> = {}
@@ -58,21 +57,35 @@ export default function Leaderboard({
     }
     scoreHistory.current = [...scoreHistory.current, snapshot].slice(-HISTORY_CAP)
 
-    // Update movement cache
-    if (scoreHistory.current.length >= 2) {
-      const oldest = scoreHistory.current[0]
-      const now = Date.now()
-      for (const s of current) {
-        if (s.total_strokes == null) continue
-        const prev = oldest[s.user_id]
-        if (prev == null) continue
-        if (s.total_strokes < prev) {
-          movementCache.current[s.user_id] = { dir: 'up', detectedAt: now }
-        } else if (s.total_strokes > prev) {
-          movementCache.current[s.user_id] = { dir: 'down', detectedAt: now }
-        }
+    if (scoreHistory.current.length < 2) return
+
+    // Compute delta (current - oldest) for each team that has data in both snapshots
+    const oldest = scoreHistory.current[0]
+    const latest = scoreHistory.current[scoreHistory.current.length - 1]
+    const deltas: { userId: string; delta: number }[] = []
+
+    for (const s of current) {
+      const old = oldest[s.user_id]
+      const now = latest[s.user_id]
+      if (old != null && now != null) {
+        deltas.push({ userId: s.user_id, delta: now - old })
       }
     }
+
+    if (deltas.length === 0) return
+
+    // Always assign fire to the best (most negative delta) and ice to the worst (most positive)
+    deltas.sort((a, b) => a.delta - b.delta)
+    const hotId = deltas[0].userId
+    const coldId = deltas[deltas.length - 1].userId
+
+    const next: Record<string, 'up' | 'down' | null> = {}
+    for (const { userId } of deltas) next[userId] = null
+    next[hotId] = 'up'
+    // Only mark cold if it's a different team (avoids one team getting both on a 1-team league)
+    if (coldId !== hotId) next[coldId] = 'down'
+
+    movementMap.current = next
   }
 
   // Seed history from initial server data
@@ -82,10 +95,8 @@ export default function Leaderboard({
   }, [])
 
   function getMovement(userId: string): 'up' | 'down' | null {
-    const cached = movementCache.current[userId]
-    if (!cached) return null
-    if (Date.now() - cached.detectedAt > PERSIST_MS) return null
-    return cached.dir
+    if (scoreHistory.current.length < 2) return null
+    return movementMap.current[userId] ?? null
   }
 
   // Keep a ref to standings so the poll closure always sees the latest value
