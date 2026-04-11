@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { TeamStanding } from '@/lib/types'
 
-// Keep a rolling history of rank snapshots (capped at 4).
-// Movement is determined by comparing current rank to the oldest snapshot.
-const HISTORY_CAP = 4
+// Keep a rolling history of total_strokes snapshots (capped at 10 refreshes).
+// Movement is determined by comparing current score to the oldest snapshot.
+const HISTORY_CAP = 10
 
 interface Props {
   leagueId: string
@@ -44,29 +44,30 @@ export default function Leaderboard({
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  // rankHistory[i] = { userId -> rank } snapshot
-  const rankHistory = useRef<Record<string, number>[]>([])
+  // scoreHistory[i] = { userId -> total_strokes } snapshot
+  const scoreHistory = useRef<Record<string, number>[]>([])
 
-  function pushRankSnapshot(current: TeamStanding[]) {
+  function pushScoreSnapshot(current: TeamStanding[]) {
     const snapshot: Record<string, number> = {}
     for (const s of current) {
-      if (s.rank != null) snapshot[s.user_id] = s.rank
+      if (s.total_strokes != null) snapshot[s.user_id] = s.total_strokes
     }
-    rankHistory.current = [...rankHistory.current, snapshot].slice(-HISTORY_CAP)
+    scoreHistory.current = [...scoreHistory.current, snapshot].slice(-HISTORY_CAP)
   }
 
   // Seed history from initial server data
   useEffect(() => {
-    pushRankSnapshot(initialStandings)
+    pushScoreSnapshot(initialStandings)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function getMovement(userId: string, currentRank: number | null): 'up' | 'down' | null {
-    if (currentRank == null || rankHistory.current.length < 2) return null
-    const oldest = rankHistory.current[0][userId]
+  function getMovement(userId: string, currentScore: number | null): 'up' | 'down' | null {
+    if (currentScore == null || scoreHistory.current.length < 2) return null
+    const oldest = scoreHistory.current[0][userId]
     if (oldest == null) return null
-    if (currentRank < oldest) return 'up'
-    if (currentRank > oldest) return 'down'
+    // Score going down = improving = fire; score going up = worsening = cold
+    if (currentScore < oldest) return 'up'
+    if (currentScore > oldest) return 'down'
     return null
   }
 
@@ -99,7 +100,7 @@ export default function Leaderboard({
                   : s
               )
               .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
-            pushRankSnapshot(next)
+            pushScoreSnapshot(next)
             return next
           })
         }
@@ -156,7 +157,7 @@ export default function Leaderboard({
             {standings.map((team, idx) => {
               const isLeader = idx === 0 && team.total_strokes != null
               const isCurrentUser = team.user_id === currentUserId
-              const movement = getMovement(team.user_id, team.rank)
+              const movement = getMovement(team.user_id, team.total_strokes)
               // Sort picks by draft round
               const picks = [...team.picks].sort((a, b) => a.draft_round - b.draft_round)
               // Turd: worst current-round score on the team, only if over par today
