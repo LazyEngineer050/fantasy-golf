@@ -167,44 +167,42 @@ export default async function StandingsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Player</th>
-                {/* Newest left, oldest right */}
-                {leagues.map((l) => (
-                  <th key={l.id} className={`px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide ${l.status === 'live' ? 'text-green-400 bg-green-950/30' : 'text-gray-500'}`}>
-                    <Link href={`/dashboard/${l.id}`} className="hover:text-green-400 transition-colors">
-                      <span className="block whitespace-nowrap">{l.tournaments!.name}</span>
-                      <span className={`block font-normal normal-case ${l.status === 'live' ? 'text-green-600' : 'text-gray-600'}`}>{fmtDate(l.tournaments!.start_date)}</span>
-                      {l.status === 'live' && <span className="block text-green-500 font-medium normal-case text-xs mt-0.5">● LIVE</span>}
-                    </Link>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Tournament</th>
+                {sortedUsers.map((uid, i) => (
+                  <th key={uid} className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide whitespace-nowrap ${i === 0 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                    {i === 0 && <span className="mr-1">🏆</span>}
+                    {nameMap.get(uid) ?? uid}
+                    <span className={`block font-normal normal-case text-xs mt-0.5 ${moneyClass(totals.get(uid) ?? 0)}`}>
+                      {fmtMoney(totals.get(uid) ?? 0)}
+                    </span>
                   </th>
                 ))}
-                <th className="px-4 py-3 text-right text-xs font-semibold text-yellow-500 uppercase tracking-wide whitespace-nowrap">Total</th>
               </tr>
             </thead>
             <tbody>
-              {sortedUsers.map((uid, i) => {
-                const total = totals.get(uid) ?? 0
-                const isLeader = i === 0
+              {/* Newest at top, oldest at bottom */}
+              {leagues.map((l) => {
+                const year = new Date(l.tournaments!.start_date + 'T12:00:00Z').getFullYear()
+                const isLive = l.status === 'live'
                 return (
-                  <tr key={uid} className={`border-b border-gray-800 last:border-0 ${isLeader ? 'bg-yellow-950/20' : 'hover:bg-gray-800/40'}`}>
-                    <td className={`px-4 py-3 font-semibold whitespace-nowrap ${isLeader ? 'text-yellow-300' : 'text-gray-100'}`}>
-                      {isLeader && <span className="mr-1">🏆</span>}
-                      {nameMap.get(uid) ?? uid}
+                  <tr key={l.id} className={`border-b border-gray-800 last:border-0 ${isLive ? 'bg-green-950/20' : 'hover:bg-gray-800/40'}`}>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <Link href={`/dashboard/${l.id}`} className={`font-medium hover:underline ${isLive ? 'text-green-400' : 'text-gray-200'}`}>
+                        {l.tournaments!.name} - {year}
+                      </Link>
+                      {isLive && <span className="ml-2 text-xs text-green-600 font-medium">● LIVE*</span>}
                     </td>
-                    {leagues.map((l) => {
+                    {sortedUsers.map((uid) => {
                       const net = winningsByLeague.get(l.id)?.get(uid)
                       return (
-                        <td key={l.id} className={`px-3 py-3 text-center tabular-nums ${l.status === 'live' ? 'bg-green-950/20' : ''}`}>
+                        <td key={uid} className="px-4 py-3 text-center tabular-nums">
                           {net !== undefined
-                            ? <span className={`font-medium ${moneyClass(net)}`}>{fmtMoney(net)}{l.status === 'live' ? '*' : ''}</span>
+                            ? <span className={`font-medium ${moneyClass(net)}`}>{fmtMoney(net)}</span>
                             : <span className="text-gray-700">—</span>
                           }
                         </td>
                       )
                     })}
-                    <td className={`px-4 py-3 text-right font-bold tabular-nums whitespace-nowrap ${moneyClass(total)}`}>
-                      {fmtMoney(total)}
-                    </td>
                   </tr>
                 )
               })}
