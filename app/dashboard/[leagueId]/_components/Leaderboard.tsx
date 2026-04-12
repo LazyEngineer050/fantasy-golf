@@ -91,7 +91,6 @@ export default function Leaderboard({
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
   const [status, setStatus] = useState(leagueStatus)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [view, setView] = useState<'teams' | 'players'>('teams')
   const statusRef = useRef(leagueStatus)
   const STORAGE_KEY = `score-history-${leagueId}`
@@ -228,7 +227,6 @@ export default function Leaderboard({
         pushScoreSnapshot(next)
         return next
       })
-      setLastUpdate(new Date())
     }
 
     poll() // immediate on mount
@@ -246,8 +244,7 @@ export default function Leaderboard({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'team_scores', filter: `league_id=eq.${leagueId}` },
         (payload) => {
-          setLastUpdate(new Date())
-          setStandings((prev) => {
+              setStandings((prev) => {
             const updated = payload.new as { user_id: string; total_strokes: number | null; rank: number | null }
             const next = prev
               .map((s) =>
@@ -262,8 +259,7 @@ export default function Leaderboard({
         }
       )
       .on('postgres_changes', { event: '*', schema: 'public', table: 'player_scores' }, () => {
-        setLastUpdate(new Date())
-      })
+        })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -298,8 +294,15 @@ export default function Leaderboard({
 
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4">
-        <div className="min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-2xl font-bold text-green-400">{tournamentName}</h1>
+          <span className={`shrink-0 inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+            status === 'live' ? 'bg-green-800 text-green-200'
+            : status === 'completed' ? 'bg-yellow-800 text-yellow-200'
+            : 'bg-yellow-900 text-yellow-200'
+          }`}>
+            {status === 'completed' ? 'FINAL' : status.toUpperCase()}
+          </span>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {/* View toggle */}
@@ -316,18 +319,6 @@ export default function Leaderboard({
             >
               Players
             </button>
-          </div>
-          <div className="text-right">
-          <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-            status === 'live' ? 'bg-green-800 text-green-200'
-            : status === 'completed' ? 'bg-yellow-800 text-yellow-200'
-            : 'bg-yellow-900 text-yellow-200'
-          }`}>
-            {status === 'completed' ? 'FINAL' : status.toUpperCase()}
-          </span>
-          {lastUpdate && (
-            <p className="text-xs text-gray-600 mt-1">Updated {lastUpdate.toLocaleTimeString()}</p>
-          )}
           </div>
         </div>
       </div>
