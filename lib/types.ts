@@ -31,23 +31,32 @@ export type Database = {
         }
         Relationships: []
       }
+      series: {
+        Row: { id: string; name: string; year: number | null; created_at: string }
+        Insert: { id?: string; name: string; year?: number | null }
+        Update: { name?: string; year?: number | null }
+        Relationships: []
+      }
       leagues: {
         Row: {
           id: string
           name: string
           tournament_id: string
           status: 'drafting' | 'live' | 'completed'
+          series_id: string | null
         }
         Insert: {
           id?: string
           name: string
           tournament_id: string
           status?: 'drafting' | 'live' | 'completed'
+          series_id?: string | null
         }
         Update: {
           name?: string
           tournament_id?: string
           status?: 'drafting' | 'live' | 'completed'
+          series_id?: string | null
         }
         Relationships: []
       }

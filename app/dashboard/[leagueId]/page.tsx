@@ -37,10 +37,22 @@ export default async function DashboardPage({ params }: PageProps) {
     name: string
     status: 'drafting' | 'live' | 'completed'
     tournament_id: string
+    series_id: string | null
     tournaments: { id: string; name: string; espn_event_id: string | null }
   }
 
   const tournamentId: string = league.tournaments?.id ?? league.tournament_id
+
+  // Load series name if this league belongs to one
+  let seriesName: string | null = null
+  if (league.series_id) {
+    const { data: seriesRaw } = await supabase
+      .from('series')
+      .select('name')
+      .eq('id', league.series_id)
+      .single()
+    seriesName = (seriesRaw as { name: string } | null)?.name ?? null
+  }
 
   type TeamScoreRow = { user_id: string; total_strokes: number | null; rank: number | null; users: { display_name: string } | null }
 
@@ -158,6 +170,8 @@ export default async function DashboardPage({ params }: PageProps) {
       standings={standings}
       currentUserId={currentUserId}
       allLeagues={allLeagues}
+      seriesId={league.series_id}
+      seriesName={seriesName}
     />
   )
 }

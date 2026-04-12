@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { TeamStanding } from '@/lib/types'
 
@@ -17,6 +18,8 @@ interface Props {
   standings: TeamStanding[]
   currentUserId: string | null
   allLeagues: { id: string; name: string }[]
+  seriesId: string | null
+  seriesName: string | null
 }
 
 function fmtScore(n: number | null): string {
@@ -32,6 +35,48 @@ function scoreClass(n: number | null): string {
   return 'text-gray-300'
 }
 
+// Prize structure (hardcoded for now):
+//   $20 buy-in per team
+//   $50 → team whose best individual player leads the tournament
+//   $30 → team with the lowest combined score  (+$5 side-bet from worst team)
+//   -$5 → team with the highest combined score  (paid to best team)
+function computeWinnings(standings: TeamStanding[]): Map<string, number> {
+  const w = new Map<string, number>()
+  for (const s of standings) w.set(s.user_id, -20)
+
+  const scored = standings.filter((s) => s.total_strokes !== null)
+  if (scored.length === 0) return w
+
+  // Best / worst team by combined score
+  const bestTeamScore = Math.min(...scored.map((s) => s.total_strokes!))
+  const worstTeamScore = Math.max(...scored.map((s) => s.total_strokes!))
+  const bestTeams = scored.filter((s) => s.total_strokes === bestTeamScore)
+  const worstTeams = scored.filter((s) => s.total_strokes === worstTeamScore)
+
+  // $30 split among tied best teams
+  for (const t of bestTeams) w.set(t.user_id, w.get(t.user_id)! + 30 / bestTeams.length)
+
+  // $5 side-bet: worst pays best (skip if same teams, e.g. only 1 team)
+  if (worstTeamScore !== bestTeamScore) {
+    for (const t of worstTeams) w.set(t.user_id, w.get(t.user_id)! - 5 / worstTeams.length)
+    for (const t of bestTeams)  w.set(t.user_id, w.get(t.user_id)! + 5 / bestTeams.length)
+  }
+
+  // $50 → team that owns the best individual player
+  const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)
+  if (allPicks.length > 0) {
+    const bestPlayerScore = Math.min(...allPicks.map((p) => p.total_strokes!))
+    const ownerIds = new Set(
+      standings
+        .filter((s) => s.picks.some((p) => p.total_strokes === bestPlayerScore))
+        .map((s) => s.user_id)
+    )
+    for (const uid of ownerIds) w.set(uid, (w.get(uid) ?? 0) + 50 / ownerIds.size)
+  }
+
+  return w
+}
+
 export default function Leaderboard({
   leagueId,
   leagueName,
@@ -40,6 +85,8 @@ export default function Leaderboard({
   standings: initialStandings,
   currentUserId,
   allLeagues,
+  seriesId,
+  seriesName,
 }: Props) {
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
@@ -199,6 +246,19 @@ export default function Leaderboard({
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Breadcrumb nav */}
+      <div className="bg-gray-950 border-b border-gray-800/50 px-6 py-2 flex items-center gap-2 text-sm">
+        <Link href="/" className="text-gray-500 hover:text-green-400 transition-colors font-medium">⛳ Home</Link>
+        {seriesId && seriesName && (
+          <>
+            <span className="text-gray-700">/</span>
+            <Link href={`/series/${seriesId}`} className="text-gray-500 hover:text-green-400 transition-colors">{seriesName}</Link>
+          </>
+        )}
+        <span className="text-gray-700">/</span>
+        <span className="text-gray-400">{leagueName}</span>
+      </div>
+
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
@@ -270,6 +330,8 @@ export default function Leaderboard({
         ) : (
           <div className="space-y-6">
             {(() => {
+              const winnings = computeWinnings(standings)
+
               // Overall tournament leader
               const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)
               const bestScore = allPicks.length > 0 ? Math.min(...allPicks.map((p) => p.total_strokes!)) : null
@@ -338,6 +400,20 @@ export default function Leaderboard({
                         </span>
                         <p className="text-xs text-gray-500">total</p>
                       </div>
+                      {(() => {
+                        const net = winnings.get(team.user_id)
+                        if (net === undefined) return null
+                        const positive = net > 0
+                        const zero = net === 0
+                        return (
+                          <div className={`text-right shrink-0 pl-3 border-l border-gray-700 ${zero ? 'opacity-50' : ''}`}>
+                            <span className={`text-lg font-bold tabular-nums ${positive ? 'text-green-400' : net < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                              {positive ? '+' : ''}{net % 1 === 0 ? `$${net}` : `$${net.toFixed(2)}`}
+                            </span>
+                            <p className="text-xs text-gray-500">proj.</p>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Players table */}

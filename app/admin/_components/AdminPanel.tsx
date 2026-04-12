@@ -4,6 +4,8 @@ import { useState, useTransition } from 'react'
 import {
   createTournament,
   createLeague,
+  createSeries,
+  assignLeagueToSeries,
   addLeagueMember,
   removeLeagueMember,
   initDraft,
@@ -18,12 +20,19 @@ interface Tournament {
   end_date: string
 }
 
+interface Series {
+  id: string
+  name: string
+  year: number | null
+}
+
 interface LeagueWithMembers {
   id: string
   name: string
   status: 'drafting' | 'live' | 'completed'
   tournament_id: string
   tournament_name: string
+  series_id: string | null
   members: Array<{ user_id: string; draft_position: number; display_name: string }>
 }
 
@@ -34,6 +43,7 @@ interface User {
 
 interface Props {
   tournaments: Tournament[]
+  seriesList: Series[]
   leagues: LeagueWithMembers[]
   users: User[]
 }
@@ -75,6 +85,30 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputCls = 'w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500'
 const btnCls = 'px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm rounded-lg font-medium transition-colors'
 
+// ─── Create Series ────────────────────────────────────────────────────────────
+
+function CreateSeriesForm() {
+  const { isPending, error, run } = useAction()
+
+  return (
+    <Section title="New Series">
+      <p className="text-xs text-gray-500">A series groups multiple leagues (same teams, different tournaments) into a season.</p>
+      <form action={(fd) => run(() => createSeries(fd))} className="space-y-3">
+        <Field label="Series Name">
+          <input name="name" required placeholder="2026 Majors" className={inputCls} />
+        </Field>
+        <Field label="Year (optional)">
+          <input name="year" type="number" placeholder="2026" className={inputCls} />
+        </Field>
+        {error && <p className="text-red-400 text-xs">{error}</p>}
+        <button type="submit" disabled={isPending} className={btnCls}>
+          {isPending ? 'Creating…' : 'Create Series'}
+        </button>
+      </form>
+    </Section>
+  )
+}
+
 // ─── Create Tournament ────────────────────────────────────────────────────────
 
 function CreateTournamentForm() {
@@ -111,7 +145,7 @@ function CreateTournamentForm() {
 
 // ─── Create League ────────────────────────────────────────────────────────────
 
-function CreateLeagueForm({ tournaments }: { tournaments: Tournament[] }) {
+function CreateLeagueForm({ tournaments, seriesList }: { tournaments: Tournament[]; seriesList: Series[] }) {
   const { isPending, error, run } = useAction()
 
   return (
@@ -128,6 +162,16 @@ function CreateLeagueForm({ tournaments }: { tournaments: Tournament[] }) {
             ))}
           </select>
         </Field>
+        {seriesList.length > 0 && (
+          <Field label="Series (optional)">
+            <select name="seriesId" className={inputCls}>
+              <option value="">No series (standalone)</option>
+              {seriesList.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}{s.year ? ` (${s.year})` : ''}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         {error && <p className="text-red-400 text-xs">{error}</p>}
         <button type="submit" disabled={isPending} className={btnCls}>
           {isPending ? 'Creating…' : 'Create League'}
@@ -139,15 +183,18 @@ function CreateLeagueForm({ tournaments }: { tournaments: Tournament[] }) {
 
 // ─── League Card ─────────────────────────────────────────────────────────────
 
-function LeagueCard({ league, users }: { league: LeagueWithMembers; users: User[] }) {
+function LeagueCard({ league, users, seriesList }: { league: LeagueWithMembers; users: User[]; seriesList: Series[] }) {
   const [open, setOpen] = useState(false)
   const memberAction = useAction()
   const statusAction = useAction()
   const draftAction = useAction()
+  const seriesAction = useAction()
 
   const memberUserIds = new Set(league.members.map((m) => m.user_id))
   const nonMembers = users.filter((u) => !memberUserIds.has(u.id))
   const nextPosition = league.members.length + 1
+
+  const currentSeries = seriesList.find((s) => s.id === league.series_id)
 
   const statusColors: Record<string, string> = {
     drafting: 'bg-yellow-900 text-yellow-300',
@@ -163,7 +210,11 @@ function LeagueCard({ league, users }: { league: LeagueWithMembers; users: User[
       >
         <div>
           <p className="font-semibold text-gray-100">{league.name}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{league.tournament_name} · {league.members.length} member{league.members.length !== 1 ? 's' : ''}</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {league.tournament_name}
+            {currentSeries && <span className="ml-2 text-blue-400">· {currentSeries.name}</span>}
+            {' '}· {league.members.length} member{league.members.length !== 1 ? 's' : ''}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[league.status]}`}>
@@ -175,6 +226,26 @@ function LeagueCard({ league, users }: { league: LeagueWithMembers; users: User[
 
       {open && (
         <div className="border-t border-gray-800 p-4 space-y-5">
+
+          {/* Series assignment */}
+          {seriesList.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Series</p>
+              <div className="flex gap-2">
+                <select
+                  className={`${inputCls} flex-1`}
+                  defaultValue={league.series_id ?? ''}
+                  onChange={(e) => seriesAction.run(() => assignLeagueToSeries(league.id, e.target.value || null))}
+                >
+                  <option value="">No series (standalone)</option>
+                  {seriesList.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}{s.year ? ` (${s.year})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              {seriesAction.error && <p className="text-red-400 text-xs">{seriesAction.error}</p>}
+            </div>
+          )}
 
           {/* Members list */}
           <div>
@@ -274,17 +345,18 @@ function LeagueCard({ league, users }: { league: LeagueWithMembers; users: User[
 
 // ─── Root Panel ───────────────────────────────────────────────────────────────
 
-export default function AdminPanel({ tournaments, leagues, users }: Props) {
+export default function AdminPanel({ tournaments, seriesList, leagues, users }: Props) {
   return (
     <div className="space-y-6">
+      <CreateSeriesForm />
       <CreateTournamentForm />
-      <CreateLeagueForm tournaments={tournaments} />
+      <CreateLeagueForm tournaments={tournaments} seriesList={seriesList} />
 
       {leagues.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-gray-100">Leagues</h2>
           {leagues.map((l) => (
-            <LeagueCard key={l.id} league={l} users={users} />
+            <LeagueCard key={l.id} league={l} users={users} seriesList={seriesList} />
           ))}
         </div>
       )}
