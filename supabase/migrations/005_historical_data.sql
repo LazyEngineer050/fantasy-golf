@@ -89,19 +89,19 @@ BEGIN
 
   masters_league := gen_random_uuid();
   INSERT INTO leagues (id, name, tournament_id, status, series_id)
-  VALUES (masters_league, 'ButteryBiscuits', masters_id, 'completed', series_2025_id);
+  VALUES (masters_league, 'Pride Points', masters_id, 'completed', series_2025_id);
 
   pga_league := gen_random_uuid();
   INSERT INTO leagues (id, name, tournament_id, status, series_id)
-  VALUES (pga_league, 'ButteryBiscuits', pga_id, 'completed', series_2025_id);
+  VALUES (pga_league, 'Pride Points', pga_id, 'completed', series_2025_id);
 
   usopen_league := gen_random_uuid();
   INSERT INTO leagues (id, name, tournament_id, status, series_id)
-  VALUES (usopen_league, 'ButteryBiscuits', usopen_id, 'completed', series_2025_id);
+  VALUES (usopen_league, 'Pride Points', usopen_id, 'completed', series_2025_id);
 
   players_league := gen_random_uuid();
   INSERT INTO leagues (id, name, tournament_id, status, series_id)
-  VALUES (players_league, 'ButteryBiscuits', players_id, 'completed', series_2026_id);
+  VALUES (players_league, 'Pride Points', players_id, 'completed', series_2026_id);
 
   -- ── League Members ──────────────────────────────────────────────────────────
   -- Draft positions are arbitrary for historical data.

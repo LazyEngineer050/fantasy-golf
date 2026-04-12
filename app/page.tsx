@@ -44,6 +44,7 @@ export default async function HomePage() {
           <p className="text-gray-400 text-sm mt-1">Post-cut snake draft · Live scoring</p>
         </div>
         <div className="flex gap-2 text-xs">
+          <Link href="/standings" className="px-3 py-1.5 bg-yellow-900/60 hover:bg-yellow-900 text-yellow-400 rounded-lg transition-colors font-medium">All-Time Standings</Link>
           <Link href="/commissioner" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">Commissioner</Link>
           <Link href="/admin" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">Admin</Link>
         </div>
@@ -62,17 +63,9 @@ export default async function HomePage() {
           const seriesLeagues = seriesMap.get(series.id) ?? []
           return (
             <div key={series.id}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-bold text-gray-200">
-                  {series.name}{series.year ? ` · ${series.year}` : ''}
-                </h2>
-                <Link
-                  href={`/series/${series.id}`}
-                  className="text-xs px-3 py-1.5 bg-yellow-900/50 hover:bg-yellow-900 text-yellow-400 rounded-lg transition-colors font-medium"
-                >
-                  Season Standings →
-                </Link>
-              </div>
+              <h2 className="text-lg font-bold text-gray-200 mb-3">
+                {series.name}{series.year ? ` · ${series.year}` : ''}
+              </h2>
               <div className="space-y-3">
                 {seriesLeagues.map((league) => (
                   <LeagueRow key={league.id} league={league} />
