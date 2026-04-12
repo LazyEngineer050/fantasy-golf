@@ -58,15 +58,16 @@ function computeLeagueWinnings(
 export default async function StandingsPage() {
   const supabase = await createSupabaseServerClient()
 
-  // All completed leagues with tournament date, newest first
+  // All completed + live leagues with tournament date, newest first
   const { data: leaguesRaw } = await supabase
     .from('leagues')
-    .select('id, tournament_id, tournaments(id, name, start_date, end_date)')
-    .eq('status', 'completed')
+    .select('id, status, tournament_id, tournaments(id, name, start_date, end_date)')
+    .in('status', ['completed', 'live'])
     .order('tournament_id', { ascending: true }) // will re-sort below by date
 
   type LeagueRow = {
     id: string
+    status: 'completed' | 'live'
     tournament_id: string
     tournaments: { id: string; name: string; start_date: string; end_date: string } | null
   }
@@ -169,10 +170,11 @@ export default async function StandingsPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Player</th>
                 {/* Newest left, oldest right */}
                 {leagues.map((l) => (
-                  <th key={l.id} className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  <th key={l.id} className={`px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide ${l.status === 'live' ? 'text-green-400 bg-green-950/30' : 'text-gray-500'}`}>
                     <Link href={`/dashboard/${l.id}`} className="hover:text-green-400 transition-colors">
                       <span className="block whitespace-nowrap">{l.tournaments!.name}</span>
-                      <span className="block text-gray-600 font-normal normal-case">{fmtDate(l.tournaments!.start_date)}</span>
+                      <span className={`block font-normal normal-case ${l.status === 'live' ? 'text-green-600' : 'text-gray-600'}`}>{fmtDate(l.tournaments!.start_date)}</span>
+                      {l.status === 'live' && <span className="block text-green-500 font-medium normal-case text-xs mt-0.5">● LIVE</span>}
                     </Link>
                   </th>
                 ))}
@@ -192,9 +194,9 @@ export default async function StandingsPage() {
                     {leagues.map((l) => {
                       const net = winningsByLeague.get(l.id)?.get(uid)
                       return (
-                        <td key={l.id} className="px-3 py-3 text-center tabular-nums">
+                        <td key={l.id} className={`px-3 py-3 text-center tabular-nums ${l.status === 'live' ? 'bg-green-950/20' : ''}`}>
                           {net !== undefined
-                            ? <span className={`font-medium ${moneyClass(net)}`}>{fmtMoney(net)}</span>
+                            ? <span className={`font-medium ${moneyClass(net)}`}>{fmtMoney(net)}{l.status === 'live' ? '*' : ''}</span>
                             : <span className="text-gray-700">—</span>
                           }
                         </td>
@@ -212,12 +214,13 @@ export default async function StandingsPage() {
 
         <div className="mt-4 bg-gray-900 rounded-xl border border-gray-800 p-4">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Prize Structure</p>
-          <div className="flex gap-6 flex-wrap text-xs text-gray-400">
+          <div className="flex gap-6 flex-wrap text-xs text-gray-400 mb-2">
             <span><span className="text-gray-300 font-medium">Buy-in</span> $20</span>
             <span><span className="text-gray-300 font-medium">Best team</span> +$30</span>
             <span><span className="text-gray-300 font-medium">Best player</span> +$50</span>
             <span><span className="text-gray-300 font-medium">Side-bet</span> worst pays best +$5</span>
           </div>
+          <p className="text-xs text-green-700">* In progress — projected winnings</p>
         </div>
       </div>
     </div>

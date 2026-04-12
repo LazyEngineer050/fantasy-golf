@@ -15,13 +15,20 @@ export default async function DashboardPage({ params }: PageProps) {
 
   const supabase = await createSupabaseServerClient()
 
-  // Load all leagues for the switcher
+  // Load all leagues for the switcher — show tournament name, not league name
   const { data: allLeaguesRaw } = await supabase
     .from('leagues')
-    .select('id, name')
-    .order('name', { ascending: true })
+    .select('id, tournaments(name, start_date)')
+    .order('tournament_id', { ascending: true })
 
-  const allLeagues = ((allLeaguesRaw ?? []) as unknown as { id: string; name: string }[])
+  type AllLeagueRow = { id: string; tournaments: { name: string; start_date: string } | null }
+  const allLeagues = ((allLeaguesRaw ?? []) as unknown as AllLeagueRow[])
+    .filter((l) => l.tournaments)
+    .sort((a, b) => b.tournaments!.start_date.localeCompare(a.tournaments!.start_date))
+    .map((l) => {
+      const year = new Date(l.tournaments!.start_date + 'T12:00:00Z').getFullYear()
+      return { id: l.id, name: `${l.tournaments!.name} ${year}` }
+    })
 
   // Load league + tournament
   const { data: leagueRaw } = await supabase
