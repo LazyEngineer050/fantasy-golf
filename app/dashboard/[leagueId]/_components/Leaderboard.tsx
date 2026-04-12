@@ -103,22 +103,44 @@ export default function Leaderboard({
   const standingsRef = useRef(standings)
   useEffect(() => { standingsRef.current = standings }, [standings])
 
-  // Poll every 30 seconds: refresh ESPN data, then fetch updated scores and push a snapshot.
-  // This drives the fire/ice movement icons without needing Realtime.
+  // Poll every 30 seconds: refresh ESPN data, then fetch updated team + player scores.
+  // This drives the fire/ice movement icons and keeps thru/tee_time current.
   useEffect(() => {
     const poll = async () => {
       await fetch('/api/refresh', { method: 'POST' }).catch(() => {})
 
-      type ScoreRow = { user_id: string; total_strokes: number | null; rank: number | null }
+      type TeamRow = { user_id: string; total_strokes: number | null; rank: number | null }
+      type PlayerRow = {
+        player_id: string
+        total_strokes: number | null
+        today_strokes: number | null
+        thru: string | null
+        position: string | null
+        tee_time: string | null
+        r1_strokes: number | null
+        r2_strokes: number | null
+        r3_strokes: number | null
+        r4_strokes: number | null
+      }
       const res = await fetch(`/api/scores?leagueId=${leagueId}`).catch(() => null)
       if (!res?.ok) return
-      const fresh: ScoreRow[] = await res.json()
+      const fresh: { teams: TeamRow[]; players: PlayerRow[] } = await res.json()
+
+      const playerMap = new Map(fresh.players.map((p) => [p.player_id, p]))
 
       setStandings((prev) => {
         const next = prev
           .map((s) => {
-            const u = fresh.find((f) => f.user_id === s.user_id)
-            return u ? { ...s, total_strokes: u.total_strokes, rank: u.rank } : s
+            const t = fresh.teams.find((f) => f.user_id === s.user_id)
+            return {
+              ...s,
+              total_strokes: t?.total_strokes ?? s.total_strokes,
+              rank: t?.rank ?? s.rank,
+              picks: s.picks.map((p) => {
+                const ps = playerMap.get(p.player_id)
+                return ps ? { ...p, ...ps } : p
+              }),
+            }
           })
           .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
         pushScoreSnapshot(next)
