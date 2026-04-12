@@ -437,6 +437,8 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
 
   const unstarted = allPicks.filter((p) => p.total_strokes === null)
 
+  const bestScore = rows.length > 0 ? rows[0].total_strokes : null
+
   if (rows.length === 0 && unstarted.length === 0) {
     return <p className="text-center text-gray-500 py-12">No player scores yet.</p>
   }
@@ -455,12 +457,19 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-800/60">
-          {rows.map((p, i) => (
-            <tr key={p.player_id} className="bg-gray-900 hover:bg-gray-800/50 transition-colors">
+          {rows.map((p, i) => {
+            const isLeader = bestScore !== null && p.total_strokes === bestScore
+            return (
+            <tr key={p.player_id} className={`hover:bg-gray-800/50 transition-colors ${isLeader ? 'bg-yellow-950/40' : 'bg-gray-900'}`}>
               <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
-              <td className="px-4 py-2.5 font-medium text-gray-100 whitespace-nowrap">{p.player_name}</td>
+              <td className="px-4 py-2.5 whitespace-nowrap">
+                <div className="flex items-center gap-1.5">
+                  <span className={`font-medium ${isLeader ? 'text-yellow-300' : 'text-gray-100'}`}>{p.player_name}</span>
+                  {isLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
+                </div>
+              </td>
               <td className="px-4 py-2.5 text-gray-300 whitespace-nowrap">{p.owner}</td>
-              <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
+              <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${isLeader ? 'text-yellow-300' : scoreClass(p.total_strokes)}`}>
                 {fmtScore(p.total_strokes)}
               </td>
               <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.thru ? p.today_strokes : null)}`}>
@@ -468,7 +477,8 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
               </td>
               <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">{p.thru ?? (p.tee_time ?? '—')}</td>
             </tr>
-          ))}
+            )
+          })}
           {unstarted.map((p) => (
             <tr key={p.player_id} className="bg-gray-900 opacity-60">
               <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
