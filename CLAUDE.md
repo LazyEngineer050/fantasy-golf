@@ -3,7 +3,7 @@
 # ButteryBiscuits Fantasy Golf
 
 ## App overview
-Fantasy golf league app for an offline snake draft. The commissioner assigns players to teams manually. Scores are pulled from ESPN and updated live on the leaderboard. Supports multiple leagues grouped into a season series.
+Fantasy golf league app for an offline snake draft. The commissioner assigns players to teams manually. Scores are pulled from ESPN and updated live on the leaderboard. All leagues belong to the "Pride Points" group. The all-time standings page is the main landing page.
 
 Live at: **https://fantasy-golf-sooty.vercel.app**
 
@@ -44,35 +44,52 @@ Live at: **https://fantasy-golf-sooty.vercel.app**
 - Migrations live in `supabase/migrations/` — run manually in Supabase SQL editor
 
 ## Routes
-- `/` — home; leagues grouped by series with "Season Standings →" links; standalone leagues below
-- `/series/[seriesId]` — season standings table (points per tournament), live/upcoming league links
-- `/dashboard/[leagueId]` — live leaderboard; ⛳ home link in header; league switcher if >1 league
+- `/` — redirects to `/standings`
+- `/standings` — **main page**; all-time winnings table (tournaments as rows, players as columns); includes live tournaments highlighted green; links to each leaderboard
+- `/dashboard/[leagueId]` — live leaderboard; breadcrumb links back to standings; league switcher in breadcrumb
 - `/draft/[leagueId]` — real-time draft room
 - `/commissioner` — build teams offline, assign players from ESPN pool, save draft; Management tab: rename/delete team, add/remove picks
 - `/admin` — create series, tournaments, leagues; manage league members, status, draft init
+- `/series/[seriesId]` — legacy series page (still exists but not linked from main nav)
 
 ## Leaderboard (`/dashboard/[leagueId]`)
 - **Teams view**: ranked team cards with player table. Columns: Player | icons | Total | R{n}…R1
 - **Players view**: flat sorted list of all players with Owner column
-- 🔥 = most-improved team over last 10 polls; 🥶 = most-declined (always one each)
-- ⭐ = overall tournament leader player (all tied leaders get it); 💩 = worst today score on a team (if over par)
+- Header: tournament name + LIVE/FINAL badge inline; Teams/Players toggle on right; league switcher in breadcrumb
+- 🔥 = most-improved team, 🥶 = most-declined — always one of each; persisted to `localStorage` keyed by leagueId so fire/ice survive page refreshes. Falls back to current standings rank on first load.
+- ⭐ = overall tournament leader player (all tied leaders); 💩 = any player 3+ strokes worse than the drafted field average today
 - Yellow highlight + ⭐ on tied leaders in both Teams and Players views
 - Tee time shown for players who haven't started today's round (format: "2:25 PM ET")
 - Today's score suppressed (shows —) for players not yet on the course
 - 🏆 winner banner when league `status = 'completed'`; polling stops automatically
-- Polls `/api/refresh` + `/api/scores` every 30 s; `/api/scores` returns full player data (thru, tee_time, r1–r4) so all columns stay live
+- Projected winnings shown on each team card (right of total score)
+- Polls `/api/refresh` + `/api/scores` every 30 s; `/api/scores` returns full player data (thru, tee_time, r1–r4)
 
-## Series / multi-tournament
-- Admin creates a Series, then creates leagues and assigns them to it
-- `/series/[seriesId]` shows a points table across all completed leagues in the series
-- Points: 1st=10, 2nd=7, 3rd=5, 4th=4, 5th=3, 6th=2, 7th+=1; ties split points (averaged)
-- Home page groups leagues by series; standalone leagues shown separately
+## Prize structure (hardcoded)
+- $20 buy-in per team
+- $50 → team that owns the best individual player
+- $30 → team with the lowest combined score
+- $5 side-bet → worst combined team pays best combined team
+- Ties split prizes evenly; computed in `computeWinnings()` in Leaderboard.tsx and replicated server-side in `app/standings/page.tsx`
+
+## All-time standings (`/standings`)
+- Rows = tournaments (newest at top, oldest at bottom); columns = players sorted by lifetime winnings
+- Each row shows: Tournament name | Date | per-player winnings | Leaderboard → button
+- Live tournaments highlighted green with ● LIVE badge; figures marked with *
+- Player column headers show lifetime total winnings
+- Prize structure key at bottom
 
 ## Commissioner flow
 - `/commissioner` — build teams offline, assign players from ESPN pool, save draft
 - `saveDraft()` creates users, league_members, picks, sets league status to `live`
 - Management tab: rename team, delete team, add/remove individual picks
 - "End Tournament" button (when live) calls `completeLeague()` → sets status to `completed`
+
+## Historical data
+- 4 tournaments seeded via `supabase/migrations/005_historical_data.sql`
+- Teams: Dawg, CFitz, Deebs, WC
+- Synthetic champion player inserted per tournament to drive $50 best-player prize for historical leagues
+- If duplicate users are created by the migration, use the merge SQL pattern in `005_historical_data.sql` comments
 
 ## Environment variables (Vercel + .env.local)
 - `NEXT_PUBLIC_SUPABASE_URL`
