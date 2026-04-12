@@ -34,6 +34,11 @@ interface RawLinescore {
   displayValue: string
   period: number
   linescores?: RawLinescore[]   // nested hole-by-hole data when in progress
+  statistics?: {
+    categories?: Array<{
+      stats?: Array<{ value?: number; displayValue?: string }>
+    }>
+  }
 }
 
 interface RawCompetitor {
@@ -42,12 +47,6 @@ interface RawCompetitor {
   athlete?: { fullName?: string; displayName?: string; shortName?: string }
   score?: string                // relative-to-par string, e.g. "-12", "+4", "E"
   linescores?: RawLinescore[]
-  status?: {
-    type?: {
-      name?: string             // e.g. "STATUS_SCHEDULED", "STATUS_IN_PROGRESS"
-      shortDetail?: string      // e.g. "9:20 AM ET" when scheduled, or progress info
-    }
-  }
 }
 
 function parseRelPar(s: string | undefined | null): number | null {
@@ -59,6 +58,26 @@ function parseRelPar(s: string | undefined | null): number | null {
 
 function roundLinescore(linescores: RawLinescore[], period: number): RawLinescore | undefined {
   return linescores.find((l) => l.period === period)
+}
+
+/**
+ * Extract tee time from a round linescore's statistics.
+ * ESPN stores it as the last stat: "Sun Apr 12 14:25:00 PDT 2026"
+ * The time is in Eastern (despite the "PDT" label — ESPN bug).
+ */
+function extractTeeTime(linescore: RawLinescore | undefined): string | null {
+  if (!linescore) return null
+  const dateStr = linescore.statistics?.categories?.[0]?.stats?.at(-1)?.displayValue
+  if (!dateStr) return null
+  // Match "14:25" from "Sun Apr 12 14:25:00 PDT 2026"
+  const match = dateStr.match(/(\d{1,2}):(\d{2}):\d{2}/)
+  if (!match) return null
+  let hours = parseInt(match[1], 10)
+  const minutes = match[2]
+  const period = hours >= 12 ? 'PM' : 'AM'
+  if (hours > 12) hours -= 12
+  if (hours === 0) hours = 12
+  return `${hours}:${minutes} ${period} ET`
 }
 
 function determineCutLine(competitors: RawCompetitor[]): number {
@@ -138,12 +157,10 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
 
     const thru = inferThru(c)
 
-    // Tee time: only available when player is scheduled but hasn't started today's round.
-    // ESPN puts it in status.type.shortDetail (e.g. "9:20 AM ET").
-    const shortDetail = c.status?.type?.shortDetail ?? ''
-    const isScheduled = c.status?.type?.name === 'STATUS_SCHEDULED'
-    const looksLikeTime = /\d{1,2}:\d{2}\s*(AM|PM)/i.test(shortDetail)
-    const teeTime = (!thru && (isScheduled || looksLikeTime)) ? shortDetail || null : null
+    // Tee time: stored in the unstarted round's linescore statistics (last stat entry).
+    // Only extract if the player hasn't started today's round (thru is null).
+    const unplayedRound = (c.linescores ?? []).find((l) => l.value === 0)
+    const teeTime = !thru ? extractTeeTime(unplayedRound) : null
 
     return {
       espnPlayerId: c.id,
