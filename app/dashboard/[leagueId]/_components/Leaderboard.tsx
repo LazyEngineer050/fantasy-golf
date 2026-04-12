@@ -361,12 +361,10 @@ export default function Leaderboard({
                   return a.total_strokes - b.total_strokes
                 })
 
-                // Turd: worst current-round score on the team, only if over par today
-                const todayPicks = picks.filter((p) => p.today_strokes !== null)
-                const worstToday = todayPicks.length > 0 ? Math.max(...todayPicks.map((p) => p.today_strokes!)) : null
-                const turdPlayerId = worstToday !== null && worstToday > 0
-                  ? todayPicks.find((p) => p.today_strokes === worstToday)?.player_id
-                  : null
+                // Turds: any player over par today gets 💩
+                const turdPlayerIds = new Set(
+                  picks.filter((p) => p.today_strokes !== null && p.today_strokes > 0).map((p) => p.player_id)
+                )
 
                 return (
                   <div
@@ -449,7 +447,7 @@ export default function Leaderboard({
                                         {pick.player_name}
                                       </span>
                                       {isOverallLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
-                                      {turdPlayerId === pick.player_id && <span title="Killing the team" className="text-base leading-none">💩</span>}
+                                      {turdPlayerIds.has(pick.player_id) && <span title="Over par today" className="text-base leading-none">💩</span>}
                                     </div>
                                   </td>
                                   {/* Total */}
