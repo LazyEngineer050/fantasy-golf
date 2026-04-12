@@ -348,6 +348,12 @@ export default function Leaderboard({
               const currentRound = playedRounds[0] ?? null // highest round with data
               const colSpan = 2 + playedRounds.length
 
+              // Turd threshold: average today_strokes across all drafted players + 3
+              const allTodayScores = allPicks.map((p) => p.today_strokes).filter((s): s is number => s !== null)
+              const fieldAvgToday = allTodayScores.length > 0
+                ? allTodayScores.reduce((a, b) => a + b, 0) / allTodayScores.length
+                : null
+
               return standings.map((team, idx) => {
                 const leaderScore = standings[0]?.total_strokes
                 const isLeader = team.total_strokes != null && leaderScore != null && team.total_strokes === leaderScore
@@ -361,9 +367,10 @@ export default function Leaderboard({
                   return a.total_strokes - b.total_strokes
                 })
 
-                // Turds: any player over par today gets 💩
+                // Turds: player is 3+ strokes worse than the drafted field average today
                 const turdPlayerIds = new Set(
-                  picks.filter((p) => p.today_strokes !== null && p.today_strokes > 0).map((p) => p.player_id)
+                  fieldAvgToday === null ? [] :
+                  picks.filter((p) => p.today_strokes !== null && p.today_strokes >= fieldAvgToday + 3).map((p) => p.player_id)
                 )
 
                 return (
