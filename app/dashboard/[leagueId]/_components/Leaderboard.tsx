@@ -256,26 +256,25 @@ export default function Leaderboard({
           </>
         )}
         <span className="text-gray-700">/</span>
-        <span className="text-gray-400">{leagueName}</span>
+        {allLeagues.length > 1 ? (
+          <select
+            value={leagueId}
+            onChange={(e) => router.push(`/dashboard/${e.target.value}`)}
+            className="bg-transparent text-gray-400 focus:outline-none cursor-pointer hover:text-green-400 transition-colors"
+          >
+            {allLeagues.map((l) => (
+              <option key={l.id} value={l.id} className="bg-gray-900">{l.name}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-gray-400">{leagueName}</span>
+        )}
       </div>
 
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          {allLeagues.length > 1 ? (
-            <select
-              value={leagueId}
-              onChange={(e) => router.push(`/dashboard/${e.target.value}`)}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-lg font-bold text-green-400 focus:outline-none focus:border-green-500 cursor-pointer"
-            >
-              {allLeagues.map((l) => (
-                <option key={l.id} value={l.id}>{l.name}</option>
-              ))}
-            </select>
-          ) : (
-            <h1 className="text-2xl font-bold text-green-400">{leagueName}</h1>
-          )}
-          <p className="text-gray-400 text-sm mt-1">{tournamentName}</p>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-green-400">{tournamentName}</h1>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           {/* View toggle */}
