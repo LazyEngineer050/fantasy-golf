@@ -111,18 +111,25 @@ function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd'
 }
 
 function inferThru(c: RawCompetitor): string | null {
-  // Find the current (highest) round linescore with actual data
-  const rounds = (c.linescores ?? []).filter((l) => l.value > 0).sort((a, b) => b.period - a.period)
-  const current = rounds[0]
+  const linescores = c.linescores ?? []
+  // Most recent started round first
+  const started = linescores.filter((l) => l.value > 0).sort((a, b) => b.period - a.period)
+  const current = started[0]
   if (!current) return null
 
-  // If round has hole-by-hole data, count completed holes
+  // If the round in progress has hole-by-hole data, count completed holes
   if (current.linescores?.length) {
     const holesPlayed = current.linescores.length
     return holesPlayed >= 18 ? 'F' : String(holesPlayed)
   }
 
-  // Completed round (has value but no nested holes) → Finished
+  // Completed round (value > 0, no hole data). If there's an unplayed round after
+  // this one (value === 0), today's round hasn't started yet — return null.
+  const hasUnplayedRoundAhead = linescores.some(
+    (l) => l.period > current.period && l.value === 0
+  )
+  if (hasUnplayedRoundAhead) return null
+
   return 'F'
 }
 
@@ -152,8 +159,10 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
     const r4 = roundLinescore(c.linescores ?? [], 4)
     const currentRound = r4 ?? r3
 
-    // Today's score: relative-to-par displayValue of the active round
-    const todayStrokes = currentRound ? parseRelPar(currentRound.displayValue) : null
+    // Today's score: only set if the player has actually started the current round
+    const todayStrokes = (currentRound && currentRound.value > 0)
+      ? parseRelPar(currentRound.displayValue)
+      : null
 
     const thru = inferThru(c)
 
