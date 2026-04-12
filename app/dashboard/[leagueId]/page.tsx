@@ -71,6 +71,7 @@ export default async function DashboardPage({ params }: PageProps) {
     today_strokes: number | null
     thru: string | null
     position: string | null
+    tee_time: string | null
     r1_strokes: number | null
     r2_strokes: number | null
     r3_strokes: number | null
@@ -84,7 +85,7 @@ export default async function DashboardPage({ params }: PageProps) {
     playerIds.length > 0
       ? supabase
           .from('player_scores')
-          .select('player_id, total_strokes, today_strokes, thru, position, r1_strokes, r2_strokes, r3_strokes, r4_strokes')
+          .select('player_id, total_strokes, today_strokes, thru, position, tee_time, r1_strokes, r2_strokes, r3_strokes, r4_strokes')
           .eq('tournament_id', tournamentId)
           .in('player_id', playerIds)
       : Promise.resolve({ data: [] }),
@@ -110,6 +111,7 @@ export default async function DashboardPage({ params }: PageProps) {
       today_strokes: score?.today_strokes ?? null,
       thru: score?.thru ?? null,
       position: score?.position ?? null,
+      tee_time: score?.tee_time ?? null,
       r1_strokes: score?.r1_strokes ?? null,
       r2_strokes: score?.r2_strokes ?? null,
       r3_strokes: score?.r3_strokes ?? null,

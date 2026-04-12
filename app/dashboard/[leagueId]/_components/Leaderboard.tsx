@@ -317,6 +317,8 @@ export default function Leaderboard({
                               const isOverallLeader = overallLeaderPlayerId === pick.player_id
                               const isLive = pick.thru && pick.thru !== 'F'
 
+                              const notStartedToday = !pick.thru && pick.tee_time
+
                               return (
                                 <tr key={pick.player_id} className={`hover:bg-gray-800/50 transition-colors ${isOverallLeader ? 'bg-yellow-950/40' : 'bg-gray-900'}`}>
                                   {/* Player name then icons */}
@@ -335,8 +337,12 @@ export default function Leaderboard({
                                   </td>
                                   {/* All played rounds, most recent first */}
                                   {playedRounds.map((r, ri) => {
-                                    const score = pick[`r${r}_strokes` as RKey]
+                                    const rawScore = pick[`r${r}_strokes` as RKey]
                                     const isActiveRound = r === currentRound && isLive
+                                    // Hide score for the active round if player hasn't teed off yet
+                                    // (ESPN returns 0/E as a placeholder before they start)
+                                    const score = (r === currentRound && !pick.thru) ? null : rawScore
+                                    const showTeeTime = r === currentRound && !!notStartedToday
                                     return (
                                       <td key={r} className={`px-3 py-2.5 text-center whitespace-nowrap ${ri === playedRounds.length - 1 ? 'pr-4' : ''} ${isActiveRound ? 'bg-green-950/30' : ''}`}>
                                         <div className={`tabular-nums font-medium ${scoreClass(score)}`}>
@@ -345,6 +351,11 @@ export default function Leaderboard({
                                         {isActiveRound && (
                                           <div className="text-xs text-green-500 font-medium">
                                             {pick.thru === '0' ? 'Tee' : `Hole ${pick.thru}`}
+                                          </div>
+                                        )}
+                                        {showTeeTime && (
+                                          <div className="text-xs text-gray-500 font-medium">
+                                            {pick.tee_time}
                                           </div>
                                         )}
                                       </td>
@@ -407,20 +418,22 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
               <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${scoreClass(p.total_strokes)}`}>
                 {fmtScore(p.total_strokes)}
               </td>
-              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.today_strokes)}`}>
-                {fmtScore(p.today_strokes)}
+              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.thru ? p.today_strokes : null)}`}>
+                {p.thru ? fmtScore(p.today_strokes) : '—'}
               </td>
-              <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">{p.thru ?? '—'}</td>
+              <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">{p.thru ?? (p.tee_time ?? '—')}</td>
             </tr>
           ))}
           {unstarted.map((p) => (
-            <tr key={p.player_id} className="bg-gray-900 opacity-40">
+            <tr key={p.player_id} className="bg-gray-900 opacity-60">
               <td className="px-4 py-2.5 text-gray-600 text-xs">—</td>
               <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.player_name}</td>
               <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{p.owner}</td>
               <td className="px-4 py-2.5 text-center text-gray-600">—</td>
               <td className="px-4 py-2.5 text-center text-gray-600">—</td>
-              <td className="px-4 py-2.5 text-center text-gray-600 pr-4">—</td>
+              <td className="px-4 py-2.5 text-center text-gray-500 text-xs pr-4 whitespace-nowrap">
+                {p.tee_time ?? '—'}
+              </td>
             </tr>
           ))}
         </tbody>

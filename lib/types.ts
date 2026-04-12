@@ -133,6 +133,7 @@ export type Database = {
           today_strokes: number | null
           thru: string | null
           position: string | null
+          tee_time: string | null
           r1_strokes: number | null
           r2_strokes: number | null
           r3_strokes: number | null
@@ -146,6 +147,7 @@ export type Database = {
           today_strokes?: number | null
           thru?: string | null
           position?: string | null
+          tee_time?: string | null
           r1_strokes?: number | null
           r2_strokes?: number | null
           r3_strokes?: number | null
@@ -157,6 +159,7 @@ export type Database = {
           today_strokes?: number | null
           thru?: string | null
           position?: string | null
+          tee_time?: string | null
           r1_strokes?: number | null
           r2_strokes?: number | null
           r3_strokes?: number | null
@@ -253,6 +256,7 @@ export interface TeamStanding {
     today_strokes: number | null
     thru: string | null
     position: string | null
+    tee_time: string | null
     r1_strokes: number | null
     r2_strokes: number | null
     r3_strokes: number | null

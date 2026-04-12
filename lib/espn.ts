@@ -16,6 +16,7 @@ export interface EspnPlayer {
   todayStrokes: number | null   // relative to par for current round
   thru: string | null           // e.g. "F", "9", "-"
   position: string | null       // e.g. "1", "T5"
+  teeTime: string | null        // e.g. "9:20 AM ET" when player hasn't started today
   r1Strokes: number | null      // relative to par for round 1
   r2Strokes: number | null
   r3Strokes: number | null
@@ -41,6 +42,12 @@ interface RawCompetitor {
   athlete?: { fullName?: string; displayName?: string; shortName?: string }
   score?: string                // relative-to-par string, e.g. "-12", "+4", "E"
   linescores?: RawLinescore[]
+  status?: {
+    type?: {
+      name?: string             // e.g. "STATUS_SCHEDULED", "STATUS_IN_PROGRESS"
+      shortDetail?: string      // e.g. "9:20 AM ET" when scheduled, or progress info
+    }
+  }
 }
 
 function parseRelPar(s: string | undefined | null): number | null {
@@ -129,14 +136,24 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
     // Today's score: relative-to-par displayValue of the active round
     const todayStrokes = currentRound ? parseRelPar(currentRound.displayValue) : null
 
+    const thru = inferThru(c)
+
+    // Tee time: only available when player is scheduled but hasn't started today's round.
+    // ESPN puts it in status.type.shortDetail (e.g. "9:20 AM ET").
+    const shortDetail = c.status?.type?.shortDetail ?? ''
+    const isScheduled = c.status?.type?.name === 'STATUS_SCHEDULED'
+    const looksLikeTime = /\d{1,2}:\d{2}\s*(AM|PM)/i.test(shortDetail)
+    const teeTime = (!thru && (isScheduled || looksLikeTime)) ? shortDetail || null : null
+
     return {
       espnPlayerId: c.id,
       name: c.athlete?.displayName ?? c.athlete?.fullName ?? 'Unknown',
       status: inferStatus(c, cutLine),
       totalStrokes: parseRelPar(c.score),
       todayStrokes,
-      thru: inferThru(c),
+      thru,
       position: c.order != null ? String(c.order) : null,
+      teeTime,
       r1Strokes: r1 ? parseRelPar(r1.displayValue) : null,
       r2Strokes: r2 ? parseRelPar(r2.displayValue) : null,
       r3Strokes: r3 ? parseRelPar(r3.displayValue) : null,

@@ -61,6 +61,7 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
         today_strokes: ep.todayStrokes,
         thru: ep.thru,
         position: ep.position,
+        tee_time: ep.teeTime,
         r1_strokes: ep.r1Strokes,
         r2_strokes: ep.r2Strokes,
         r3_strokes: ep.r3Strokes,
