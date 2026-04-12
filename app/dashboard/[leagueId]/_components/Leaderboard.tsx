@@ -43,8 +43,10 @@ export default function Leaderboard({
 }: Props) {
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
+  const [status, setStatus] = useState(leagueStatus)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [view, setView] = useState<'teams' | 'players'>('teams')
+  const statusRef = useRef(leagueStatus)
   // scoreHistory[i] = { userId -> total_strokes } snapshot
   const scoreHistory = useRef<Record<string, number>[]>([])
   // Derived movement map: userId -> 'up' | 'down' | null (recomputed after each snapshot)
@@ -105,8 +107,11 @@ export default function Leaderboard({
 
   // Poll every 30 seconds: refresh ESPN data, then fetch updated team + player scores.
   // This drives the fire/ice movement icons and keeps thru/tee_time current.
+  // Stops automatically when the league is marked completed.
   useEffect(() => {
     const poll = async () => {
+      if (statusRef.current === 'completed') return
+
       await fetch('/api/refresh', { method: 'POST' }).catch(() => {})
 
       type TeamRow = { user_id: string; total_strokes: number | null; rank: number | null }
@@ -124,7 +129,12 @@ export default function Leaderboard({
       }
       const res = await fetch(`/api/scores?leagueId=${leagueId}`).catch(() => null)
       if (!res?.ok) return
-      const fresh: { teams: TeamRow[]; players: PlayerRow[] } = await res.json()
+      const fresh: { teams: TeamRow[]; players: PlayerRow[]; status: string | null } = await res.json()
+
+      if (fresh.status === 'completed') {
+        statusRef.current = 'completed'
+        setStatus('completed')
+      }
 
       const playerMap = new Map(fresh.players.map((p) => [p.player_id, p]))
 
@@ -225,11 +235,11 @@ export default function Leaderboard({
           </div>
           <div className="text-right">
           <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-            leagueStatus === 'live' ? 'bg-green-800 text-green-200'
-            : leagueStatus === 'completed' ? 'bg-gray-700 text-gray-300'
+            status === 'live' ? 'bg-green-800 text-green-200'
+            : status === 'completed' ? 'bg-yellow-800 text-yellow-200'
             : 'bg-yellow-900 text-yellow-200'
           }`}>
-            {leagueStatus.toUpperCase()}
+            {status === 'completed' ? 'FINAL' : status.toUpperCase()}
           </span>
           {lastUpdate && (
             <p className="text-xs text-gray-600 mt-1">Updated {lastUpdate.toLocaleTimeString()}</p>
@@ -239,6 +249,18 @@ export default function Leaderboard({
       </div>
 
       <div className="max-w-5xl mx-auto p-4 md:p-6">
+        {status === 'completed' && standings.length > 0 && (
+          <div className="mb-6 rounded-xl border border-yellow-500 bg-yellow-950 p-6 text-center shadow-lg shadow-yellow-900/30">
+            <div className="text-5xl mb-3">🏆</div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-yellow-600 mb-1">Tournament Champion</p>
+            <h2 className="text-3xl font-bold text-yellow-300 mb-1">{standings[0].display_name}</h2>
+            <p className={`text-2xl font-bold tabular-nums ${scoreClass(standings[0].total_strokes)}`}>
+              {fmtScore(standings[0].total_strokes)}
+            </p>
+            <p className="text-gray-500 text-xs mt-3">{tournamentName} · Final</p>
+          </div>
+        )}
+
         {view === 'players' ? (
           <PlayerBoard standings={standings} />
         ) : standings.length === 0 ? (

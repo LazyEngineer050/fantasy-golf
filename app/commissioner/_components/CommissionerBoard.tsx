@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { saveDraft, deleteTeam, removePlayerPick, addPlayerToTeam, renameTeam } from '@/app/actions/commissioner'
+import { saveDraft, deleteTeam, removePlayerPick, addPlayerToTeam, renameTeam, completeLeague } from '@/app/actions/commissioner'
 import type { CutPlayer } from '@/app/actions/commissioner'
 import type { ExistingTeam } from '@/app/commissioner/page'
 
@@ -395,7 +395,7 @@ function ManageView({
   existingTeams,
   cutPlayers,
 }: {
-  selectedLeague: { id: string; tournamentId: string } | null
+  selectedLeague: { id: string; tournamentId: string; status: string } | null
   existingTeams: ExistingTeam[]
   cutPlayers: CutPlayer[]
 }) {
@@ -516,6 +516,16 @@ function ManageView({
     .filter((p) => !filterCutOnly || p.madeCut)
     .filter((p) => addSearch === '' || p.name.toLowerCase().includes(addSearch.toLowerCase()))
 
+  function handleComplete() {
+    if (!selectedLeague) return
+    if (!confirm('Mark this tournament as complete? This stops live scoring and shows the winner screen.')) return
+    startTransition(async () => {
+      const res = await completeLeague(selectedLeague.id)
+      if (res?.error) { notify(res.error, true); return }
+      notify('Tournament marked complete.')
+    })
+  }
+
   return (
     <div className="space-y-4">
       {(error || success) && (
@@ -524,6 +534,18 @@ function ManageView({
         }`}>
           {error ?? success}
         </p>
+      )}
+
+      {selectedLeague.status === 'live' && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleComplete}
+            disabled={isPending}
+            className="px-4 py-2 bg-yellow-800 hover:bg-yellow-700 disabled:opacity-50 text-yellow-100 text-sm font-medium rounded-lg transition-colors"
+          >
+            End Tournament
+          </button>
+        </div>
       )}
 
       {teams.map((team) => {

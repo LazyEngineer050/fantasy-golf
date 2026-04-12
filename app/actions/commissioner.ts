@@ -263,3 +263,18 @@ export async function renameTeam(leagueId: string, userId: string, newName: stri
   revalidatePath(`/dashboard/${leagueId}`)
   return { ok: true }
 }
+
+export async function completeLeague(leagueId: string) {
+  const supabase = createSupabaseServiceClient()
+  const { error } = await supabase
+    .from('leagues')
+    .update({ status: 'completed' })
+    .eq('id', leagueId)
+
+  if (error) return { error: error.message }
+  revalidatePath('/commissioner')
+  revalidatePath(`/dashboard/${leagueId}`)
+  revalidatePath('/')
+  return { ok: true }
+}
+

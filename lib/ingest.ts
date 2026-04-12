@@ -86,5 +86,35 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
     }
   }
 
+  // Auto-complete: if every active player has finished, mark leagues completed
+  const { data: activePlayers } = await supabase
+    .from('tournament_players')
+    .select('player_id')
+    .eq('tournament_id', tournamentId)
+    .eq('status', 'active')
+
+  if (activePlayers && activePlayers.length > 0) {
+    const activeIds = activePlayers.map((p) => p.player_id)
+    const { data: activeScores } = await supabase
+      .from('player_scores')
+      .select('thru')
+      .eq('tournament_id', tournamentId)
+      .in('player_id', activeIds)
+
+    const allFinished =
+      activeScores != null &&
+      activeScores.length > 0 &&
+      activeScores.every((s) => s.thru === 'F')
+
+    if (allFinished && (liveLeagues?.length ?? 0) > 0) {
+      await supabase
+        .from('leagues')
+        .update({ status: 'completed' })
+        .eq('tournament_id', tournamentId)
+        .eq('status', 'live')
+      console.log(`[ingest] Tournament ${tournamentId} complete — leagues marked completed`)
+    }
+  }
+
   return { ok: true, players: espnPlayers.length, leagues: liveLeagues?.length ?? 0, at: now }
 }

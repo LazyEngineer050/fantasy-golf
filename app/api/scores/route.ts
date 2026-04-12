@@ -14,10 +14,10 @@ export async function GET(req: NextRequest) {
     .eq('league_id', leagueId)
     .order('rank', { ascending: true })
 
-  // Get tournament_id and player IDs for this league
+  // Get tournament_id, status, and player IDs for this league
   const { data: leagueRow } = await supabase
     .from('leagues')
-    .select('tournament_id')
+    .select('tournament_id, status')
     .eq('id', leagueId)
     .single()
 
@@ -38,5 +38,5 @@ export async function GET(req: NextRequest) {
     players = data ?? []
   }
 
-  return Response.json({ teams: teams ?? [], players })
+  return Response.json({ teams: teams ?? [], players, status: leagueRow?.status ?? null })
 }
