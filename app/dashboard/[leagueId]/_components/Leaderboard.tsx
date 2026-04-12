@@ -273,9 +273,9 @@ export default function Leaderboard({
               // Overall tournament leader
               const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)
               const bestScore = allPicks.length > 0 ? Math.min(...allPicks.map((p) => p.total_strokes!)) : null
-              const overallLeaderPlayerId = bestScore !== null
-                ? allPicks.find((p) => p.total_strokes === bestScore)?.player_id
-                : null
+              const overallLeaderPlayerIds = new Set(
+                bestScore !== null ? allPicks.filter((p) => p.total_strokes === bestScore).map((p) => p.player_id) : []
+              )
 
               // All played rounds, most recent first (only rounds with any data)
               const roundKeys = [4, 3, 2, 1] as const
@@ -287,7 +287,8 @@ export default function Leaderboard({
               const colSpan = 2 + playedRounds.length
 
               return standings.map((team, idx) => {
-                const isLeader = idx === 0 && team.total_strokes != null
+                const leaderScore = standings[0]?.total_strokes
+                const isLeader = team.total_strokes != null && leaderScore != null && team.total_strokes === leaderScore
                 const isCurrentUser = team.user_id === currentUserId
                 const movement = getMovement(team.user_id)
                 // Sort by current score ascending; unscored players go to the bottom
@@ -358,7 +359,7 @@ export default function Leaderboard({
                             </tr>
                           ) : (
                             picks.map((pick) => {
-                              const isOverallLeader = overallLeaderPlayerId === pick.player_id
+                              const isOverallLeader = overallLeaderPlayerIds.has(pick.player_id)
                               const isLive = pick.thru && pick.thru !== 'F'
 
                               const notStartedToday = !pick.thru && pick.tee_time
