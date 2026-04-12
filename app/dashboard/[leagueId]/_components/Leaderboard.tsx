@@ -94,23 +94,28 @@ export default function Leaderboard({
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [view, setView] = useState<'teams' | 'players'>('teams')
   const statusRef = useRef(leagueStatus)
-  // scoreHistory[i] = { userId -> total_strokes } snapshot
+  const STORAGE_KEY = `score-history-${leagueId}`
+
+  // scoreHistory[i] = { userId -> total_strokes } snapshot — persisted to localStorage
   const scoreHistory = useRef<Record<string, number>[]>([])
   // Derived movement map: userId -> 'up' | 'down' | null (recomputed after each snapshot)
   const movementMap = useRef<Record<string, 'up' | 'down' | null>>({})
 
-  function pushScoreSnapshot(current: TeamStanding[]) {
-    const snapshot: Record<string, number> = {}
-    for (const s of current) {
-      if (s.total_strokes != null) snapshot[s.user_id] = s.total_strokes
+  function recomputeMovement(history: Record<string, number>[], current: TeamStanding[]) {
+    if (history.length < 2) {
+      // With only one snapshot, rank by current standings position (first = fire, last = ice)
+      const scored = current.filter((s) => s.total_strokes != null)
+      if (scored.length < 2) return
+      const next: Record<string, 'up' | 'down' | null> = {}
+      for (const s of scored) next[s.user_id] = null
+      next[scored[0].user_id] = 'up'
+      next[scored[scored.length - 1].user_id] = 'down'
+      movementMap.current = next
+      return
     }
-    scoreHistory.current = [...scoreHistory.current, snapshot].slice(-HISTORY_CAP)
 
-    if (scoreHistory.current.length < 2) return
-
-    // Compute delta (current - oldest) for each team that has data in both snapshots
-    const oldest = scoreHistory.current[0]
-    const latest = scoreHistory.current[scoreHistory.current.length - 1]
+    const oldest = history[0]
+    const latest = history[history.length - 1]
     const deltas: { userId: string; delta: number }[] = []
 
     for (const s of current) {
@@ -131,14 +136,34 @@ export default function Leaderboard({
     const next: Record<string, 'up' | 'down' | null> = {}
     for (const { userId } of deltas) next[userId] = null
     next[hotId] = 'up'
-    // Only mark cold if it's a different team (avoids one team getting both on a 1-team league)
     if (coldId !== hotId) next[coldId] = 'down'
 
     movementMap.current = next
   }
 
-  // Seed history from initial server data
+  function pushScoreSnapshot(current: TeamStanding[]) {
+    const snapshot: Record<string, number> = {}
+    for (const s of current) {
+      if (s.total_strokes != null) snapshot[s.user_id] = s.total_strokes
+    }
+    const updated = [...scoreHistory.current, snapshot].slice(-HISTORY_CAP)
+    scoreHistory.current = updated
+
+    // Persist to localStorage
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(updated)) } catch {}
+
+    recomputeMovement(updated, current)
+  }
+
+  // Restore history from localStorage, then seed with initial server data
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored) as Record<string, number>[]
+        scoreHistory.current = parsed.slice(-HISTORY_CAP)
+      }
+    } catch {}
     pushScoreSnapshot(initialStandings)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
