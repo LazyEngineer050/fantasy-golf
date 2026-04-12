@@ -117,19 +117,24 @@ function inferThru(c: RawCompetitor): string | null {
   const current = started[0]
   if (!current) return null
 
-  // If the round in progress has hole-by-hole data, count completed holes
-  if (current.linescores?.length) {
-    const holesPlayed = current.linescores.length
-    return holesPlayed >= 18 ? 'F' : String(holesPlayed)
-  }
-
-  // Completed round (value > 0, no hole data). If there's an unplayed round after
-  // this one (value === 0), today's round hasn't started yet — return null.
   const hasUnplayedRoundAhead = linescores.some(
     (l) => l.period > current.period && l.value === 0
   )
-  if (hasUnplayedRoundAhead) return null
 
+  if (current.linescores?.length) {
+    const holesPlayed = current.linescores.length
+    if (holesPlayed >= 18) {
+      // All 18 holes recorded — but if a later round is still unplayed, this is a
+      // completed past round and today hasn't started yet.
+      if (hasUnplayedRoundAhead) return null
+      return 'F'
+    }
+    // Fewer than 18 holes → currently in progress
+    return String(holesPlayed)
+  }
+
+  // No hole-by-hole data. If an unplayed round exists ahead, player is between rounds.
+  if (hasUnplayedRoundAhead) return null
   return 'F'
 }
 
