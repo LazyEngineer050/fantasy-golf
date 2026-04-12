@@ -187,10 +187,15 @@ export default async function StandingsPage() {
                 return (
                   <tr key={l.id} className={`border-b border-gray-800 last:border-0 ${isLive ? 'bg-green-950/20' : 'hover:bg-gray-800/40'}`}>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <Link href={`/dashboard/${l.id}`} className={`font-medium hover:underline ${isLive ? 'text-green-400' : 'text-gray-200'}`}>
-                        {l.tournaments!.name} - {year}
-                      </Link>
-                      {isLive && <span className="ml-2 text-xs text-green-600 font-medium">● LIVE*</span>}
+                      <div className="flex items-center gap-3">
+                        <span className={`font-medium ${isLive ? 'text-green-400' : 'text-gray-200'}`}>
+                          {l.tournaments!.name} - {year}
+                          {isLive && <span className="ml-2 text-xs text-green-600 font-medium">● LIVE*</span>}
+                        </span>
+                        <Link href={`/dashboard/${l.id}`} className={`text-xs px-2 py-1 rounded font-medium transition-colors whitespace-nowrap ${isLive ? 'bg-green-800 hover:bg-green-700 text-green-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-400'}`}>
+                          Leaderboard →
+                        </Link>
+                      </div>
                     </td>
                     {sortedUsers.map((uid) => {
                       const net = winningsByLeague.get(l.id)?.get(uid)
@@ -230,9 +235,12 @@ function Header() {
     <div className="bg-gray-900 border-b border-gray-800 px-6 py-5">
       <div className="max-w-5xl mx-auto flex items-center justify-between">
         <div>
-          <Link href="/" className="text-xs text-gray-500 hover:text-gray-400 transition-colors">← Home</Link>
-          <h1 className="text-2xl font-bold text-green-400 mt-1">⛳ ButteryBiscuits — All-Time Standings</h1>
-          <p className="text-gray-400 text-sm mt-0.5">Lifetime winnings across all tournaments</p>
+          <h1 className="text-3xl font-bold text-green-400">⛳ ButteryBiscuits</h1>
+          <p className="text-gray-400 text-sm mt-1">Pride Points — All-Time Standings</p>
+        </div>
+        <div className="flex gap-2 text-xs">
+          <Link href="/commissioner" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">Commissioner</Link>
+          <Link href="/admin" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">Admin</Link>
         </div>
       </div>
     </div>
