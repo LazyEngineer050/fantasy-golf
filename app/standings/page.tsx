@@ -178,6 +178,7 @@ export default async function StandingsPage() {
                     </span>
                   </th>
                 ))}
+                <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -188,15 +189,10 @@ export default async function StandingsPage() {
                 return (
                   <tr key={l.id} className={`border-b border-gray-800 last:border-0 ${isLive ? 'bg-green-950/20' : 'hover:bg-gray-800/40'}`}>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <span className={`font-medium ${isLive ? 'text-green-400' : 'text-gray-200'}`}>
-                          {l.tournaments!.name}
-                          {isLive && <span className="ml-2 text-xs text-green-600 font-medium">● LIVE*</span>}
-                        </span>
-                        <Link href={`/dashboard/${l.id}`} className={`text-xs px-2 py-1 rounded font-medium transition-colors whitespace-nowrap ${isLive ? 'bg-green-800 hover:bg-green-700 text-green-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-400'}`}>
-                          Leaderboard →
-                        </Link>
-                      </div>
+                      <span className={`font-medium ${isLive ? 'text-green-400' : 'text-gray-200'}`}>
+                        {l.tournaments!.name}
+                        {isLive && <span className="ml-2 text-xs text-green-600 font-medium">● LIVE*</span>}
+                      </span>
                     </td>
                     <td className={`px-4 py-3 text-sm whitespace-nowrap ${isLive ? 'text-green-600' : 'text-gray-500'}`}>
                       {fmtDate(l.tournaments!.start_date)}
@@ -212,6 +208,11 @@ export default async function StandingsPage() {
                         </td>
                       )
                     })}
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Link href={`/dashboard/${l.id}`} className={`text-xs px-2 py-1 rounded font-medium transition-colors ${isLive ? 'bg-green-800 hover:bg-green-700 text-green-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-400'}`}>
+                        Leaderboard →
+                      </Link>
+                    </td>
                   </tr>
                 )
               })}
