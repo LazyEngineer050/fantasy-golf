@@ -168,6 +168,7 @@ export default async function StandingsPage() {
             <thead>
               <tr className="border-b border-gray-800">
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Tournament</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Date</th>
                 {sortedUsers.map((uid, i) => (
                   <th key={uid} className={`px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide whitespace-nowrap ${i === 0 ? 'text-yellow-400' : 'text-gray-400'}`}>
                     {i === 0 && <span className="mr-1">🏆</span>}
@@ -189,13 +190,16 @@ export default async function StandingsPage() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         <span className={`font-medium ${isLive ? 'text-green-400' : 'text-gray-200'}`}>
-                          {l.tournaments!.name} - {year}
+                          {l.tournaments!.name}
                           {isLive && <span className="ml-2 text-xs text-green-600 font-medium">● LIVE*</span>}
                         </span>
                         <Link href={`/dashboard/${l.id}`} className={`text-xs px-2 py-1 rounded font-medium transition-colors whitespace-nowrap ${isLive ? 'bg-green-800 hover:bg-green-700 text-green-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-400'}`}>
                           Leaderboard →
                         </Link>
                       </div>
+                    </td>
+                    <td className={`px-4 py-3 text-sm whitespace-nowrap ${isLive ? 'text-green-600' : 'text-gray-500'}`}>
+                      {fmtDate(l.tournaments!.start_date)}
                     </td>
                     {sortedUsers.map((uid) => {
                       const net = winningsByLeague.get(l.id)?.get(uid)
