@@ -196,12 +196,11 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
     const r2 = roundLinescore(c.linescores ?? [], 2)
     const r3 = roundLinescore(c.linescores ?? [], 3)
     const r4 = roundLinescore(c.linescores ?? [], 4)
-    const currentRound = r4 ?? r3
+    // Most recently played round (value > 0 = raw strokes recorded)
+    const currentRound = [r4, r3, r2, r1].find((ls) => ls != null && ls.value > 0) ?? null
 
-    // Today's score: only set if the player has actually started the current round
-    const todayStrokes = (currentRound && currentRound.value > 0)
-      ? parseRelPar(currentRound.displayValue)
-      : null
+    // Today's score: score of the most recently played round
+    const todayStrokes = currentRound ? parseRelPar(currentRound.displayValue) : null
 
     const thru = inferThru(c)
 
