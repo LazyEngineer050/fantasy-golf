@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from 'react'
 import {
-  createLeague,
   ensureLeagueSeason,
   addLeagueSeasonMember,
   removeLeagueSeasonMember,
@@ -83,24 +82,6 @@ export default function CommissionerBoard({
       )
     : []
 
-  const [createLeagueError, setCreateLeagueError] = useState<string | null>(null)
-  const [newLeagueName, setNewLeagueName] = useState('')
-  const [isPendingLeague, startLeagueTransition] = useTransition()
-
-  function handleCreateLeague() {
-    const name = newLeagueName.trim()
-    if (!name) return
-    setCreateLeagueError(null)
-    const fd = new FormData()
-    fd.set('name', name)
-    startLeagueTransition(async () => {
-      const res = await createLeague(fd)
-      if (res?.error) { setCreateLeagueError(res.error); return }
-      setNewLeagueName('')
-      // Page revalidates — leagues will update on next render
-    })
-  }
-
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
 
@@ -141,25 +122,6 @@ export default function CommissionerBoard({
           )}
         </div>
 
-        {/* Create league */}
-        <div className="flex gap-2 items-center border-t border-gray-800 pt-3">
-          <input
-            type="text"
-            placeholder="New league name…"
-            value={newLeagueName}
-            onChange={(e) => setNewLeagueName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreateLeague()}
-            className={`${inputCls} flex-1`}
-          />
-          <button
-            onClick={handleCreateLeague}
-            disabled={isPendingLeague || !newLeagueName.trim()}
-            className={btnCls}
-          >
-            {isPendingLeague ? 'Creating…' : 'Create League'}
-          </button>
-        </div>
-        {createLeagueError && <p className="text-red-400 text-xs">{createLeagueError}</p>}
       </div>
 
       {/* ── Main view ── */}
