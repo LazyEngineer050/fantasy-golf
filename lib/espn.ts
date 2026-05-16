@@ -85,7 +85,7 @@ function extractTeeTime(linescore: RawLinescore | undefined): string | null {
 function hasMadeCut(c: RawCompetitor): boolean {
   const r3ls = roundLinescore(c.linescores ?? [], 3)
   const r4ls = roundLinescore(c.linescores ?? [], 4)
-  if ((r3ls?.value ?? 0) > 0 || (r4ls?.value ?? 0) > 0) return true
+  if (r3ls?.value != null || r4ls?.value != null) return true
   // R3 tee time present → player is scheduled for R3 (made the cut)
   return extractTeeTime(r3ls) !== null
 }
