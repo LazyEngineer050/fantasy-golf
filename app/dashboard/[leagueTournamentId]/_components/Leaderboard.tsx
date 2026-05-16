@@ -372,10 +372,15 @@ export default function Leaderboard({
                   return a.total_strokes - b.total_strokes
                 })
 
-                // Turds: player is 3+ strokes worse than the drafted field average today
+                // Turds: 3+ strokes worse than field avg, OR positive while avg is negative
                 const turdPlayerIds = new Set(
                   fieldAvgToday === null ? [] :
-                  picks.filter((p) => p.today_strokes !== null && p.today_strokes >= fieldAvgToday + 3).map((p) => p.player_id)
+                  picks.filter((p) =>
+                    p.today_strokes !== null && (
+                      p.today_strokes >= fieldAvgToday + 3 ||
+                      (p.today_strokes > 0 && fieldAvgToday < 0)
+                    )
+                  ).map((p) => p.player_id)
                 )
 
                 return (
