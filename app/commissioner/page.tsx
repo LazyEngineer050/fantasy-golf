@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { fetchCurrentEspnEvent, fetchEspnLeaderboard } from '@/lib/espn'
 import CommissionerBoard from './_components/CommissionerBoard'
 import type { CutPlayer } from '@/app/actions/commissioner'
+import Link from 'next/link'
 
 export interface LeagueRow {
   id: string
@@ -215,6 +216,9 @@ export default async function CommissionerPage() {
             ? <span className="text-xs bg-green-900 text-green-300 px-3 py-1 rounded-full font-medium">Live from ESPN{espnEventName ? `: ${espnEventName}` : ''}</span>
             : <span className="text-xs bg-yellow-900 text-yellow-300 px-3 py-1 rounded-full font-medium">Fallback player list</span>
           }
+          <Link href="/standings" className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">
+            ← Standings
+          </Link>
         </div>
       </div>
       <CommissionerBoard
