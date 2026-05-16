@@ -80,29 +80,21 @@ function extractTeeTime(linescore: RawLinescore | undefined): string | null {
   return `${hours}:${minutes} ${period} ET`
 }
 
-// Canonical check: has a round linescore been played?
-// Uses displayValue (e.g. "-3", "E", "+2") rather than value, which can be
-// negative (under par) or 0 (even par), making it ambiguous with unplayed rounds.
-function roundPlayed(ls: RawLinescore | undefined): boolean {
-  if (!ls) return false
-  const dv = ls.displayValue?.trim()
-  if (!dv || dv === '-') return false
-  return parseRelPar(dv) != null
-}
-
 // Returns true if a player has confirmed they made the cut:
 // either they have R3/R4 score data, or they have an R3 tee time scheduled.
+// value is raw strokes (always > 0 when played, 0 when unplayed).
 function hasMadeCut(c: RawCompetitor): boolean {
   const r3ls = roundLinescore(c.linescores ?? [], 3)
   const r4ls = roundLinescore(c.linescores ?? [], 4)
-  if (roundPlayed(r3ls) || roundPlayed(r4ls)) return true
+  if (r3ls?.value != null && r3ls.value > 0) return true
+  if (r4ls?.value != null && r4ls.value > 0) return true
   // R3 tee time present → player is scheduled for R3 (made the cut)
   return extractTeeTime(r3ls) !== null
 }
 
 function determineCutLine(competitors: RawCompetitor[]): number {
   // Derive actual cut line from who made it to R3:
-  // worst 2-round total among players in the R3 field = the real cut line.
+  // worst 2-round relative-to-par total among confirmed R3 players = the real cut line.
   const madeR3 = competitors.filter(hasMadeCut)
 
   if (madeR3.length > 0) {
@@ -133,29 +125,31 @@ function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd'
   const r1ls = roundLinescore(c.linescores ?? [], 1)
   const r2ls = roundLinescore(c.linescores ?? [], 2)
 
-  // No R1 score → withdrew before tournament
-  if (!roundPlayed(r1ls)) return 'wd'
+  // value is raw strokes — 0 or absent means the round wasn't played
+  const r1played = r1ls != null && r1ls.value > 0
+  const r2played = r2ls != null && r2ls.value > 0
 
-  // R1 played but no R2 → withdrew after R1
-  if (!roundPlayed(r2ls)) return 'wd'
+  if (!r1played) return 'wd'  // no R1 → WD before tournament
+  if (!r2played) return 'wd'  // R1 but no R2 → WD after R1
 
   // R3 tee time or R3/R4 scores → definitively made the cut
   if (hasMadeCut(c)) return 'active'
 
-  const r1 = parseRelPar(r1ls!.displayValue) ?? 0
-  const r2 = parseRelPar(r2ls!.displayValue) ?? 0
+  // Compare relative-to-par totals against cut line
+  const r1 = parseRelPar(r1ls.displayValue) ?? 0
+  const r2 = parseRelPar(r2ls.displayValue) ?? 0
   return r1 + r2 <= cutLine ? 'active' : 'cut'
 }
 
 function inferThru(c: RawCompetitor): string | null {
   const linescores = c.linescores ?? []
-  // Most recent played round first
-  const started = linescores.filter(roundPlayed).sort((a, b) => b.period - a.period)
+  // value is raw strokes — rounds with value > 0 have been played
+  const started = linescores.filter((l) => l.value > 0).sort((a, b) => b.period - a.period)
   const current = started[0]
   if (!current) return null
 
   const hasUnplayedRoundAhead = linescores.some(
-    (l) => l.period > current.period && !roundPlayed(l)
+    (l) => l.period > current.period && l.value === 0
   )
 
   if (current.linescores?.length) {
@@ -205,15 +199,15 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
     const currentRound = r4 ?? r3
 
     // Today's score: only set if the player has actually started the current round
-    const todayStrokes = roundPlayed(currentRound ?? undefined)
-      ? parseRelPar(currentRound!.displayValue)
+    const todayStrokes = (currentRound && currentRound.value > 0)
+      ? parseRelPar(currentRound.displayValue)
       : null
 
     const thru = inferThru(c)
 
     // Tee time: stored in the unstarted round's linescore statistics (last stat entry).
     // Only extract if the player hasn't started today's round (thru is null).
-    const unplayedRound = (c.linescores ?? []).find((l) => !roundPlayed(l))
+    const unplayedRound = (c.linescores ?? []).find((l) => l.value === 0)
     const teeTime = !thru ? extractTeeTime(unplayedRound) : null
 
     return {
