@@ -407,6 +407,9 @@ function DraftView({
   const [selectedTournamentId, setSelectedTournamentId] = useState(
     espnMatchedTournament?.id ?? availableTournaments[0]?.id ?? ''
   )
+  const sortedMembers = [...leagueSeason.members].sort((a, b) => a.draftPosition - b.draftPosition)
+  const [draftOrder, setDraftOrder] = useState(sortedMembers)
+  const [subView, setSubView] = useState<'teams' | 'pickorder'>('teams')
   const [search, setSearch] = useState('')
   const [filterCutOnly, setFilterCutOnly] = useState(false)
   const [selectedPlayer, setSelectedPlayer] = useState<CutPlayer | null>(null)
@@ -417,6 +420,29 @@ function DraftView({
   const [savedOk, setSavedOk] = useState(false)
   const [savedLTId, setSavedLTId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  function randomizeDraftOrder() {
+    setDraftOrder((prev) => {
+      const shuffled = [...prev]
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      }
+      return shuffled
+    })
+    setSubView('pickorder')
+  }
+
+  // Build the full snake draft sequence
+  const N = draftOrder.length
+  const snakePicks: Array<{ pickNum: number; round: number; slot: number; member: typeof draftOrder[0] }> = []
+  for (let round = 1; round <= 4; round++) {
+    const forward = round % 2 === 1
+    for (let slot = 0; slot < N; slot++) {
+      const memberIdx = forward ? slot : N - 1 - slot
+      snakePicks.push({ pickNum: (round - 1) * N + slot + 1, round, slot: memberIdx + 1, member: draftOrder[memberIdx] })
+    }
+  }
 
   const allAssigned = new Set(
     Object.values(memberPicks).flatMap((players) => players.map((p) => p.espnPlayerId))
@@ -485,18 +511,16 @@ function DraftView({
 
   return (
     <div className="space-y-4">
-      {/* Tournament + save bar */}
+      {/* Tournament + controls bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
         <div className="space-y-1 flex-1 min-w-48">
           <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
           {espnEventId && espnEventName ? (
-            // Locked to live ESPN event (in DB or will be created on save)
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-gray-100">{espnEventName}</span>
               <span className="text-xs bg-green-900 text-green-400 px-2 py-0.5 rounded-full font-medium">● Live on ESPN</span>
             </div>
           ) : (
-            // No live ESPN event — manual fallback
             <select
               value={selectedTournamentId}
               onChange={(e) => setSelectedTournamentId(e.target.value)}
@@ -508,13 +532,33 @@ function DraftView({
             </select>
           )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={isPending}
-          className="ml-auto px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors"
-        >
-          {isPending ? 'Saving…' : 'Save Draft'}
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Sub-view toggle */}
+          {(['teams', 'pickorder'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setSubView(v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                subView === v ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'
+              }`}
+            >
+              {v === 'teams' ? 'Teams' : 'Pick Order'}
+            </button>
+          ))}
+          <button
+            onClick={randomizeDraftOrder}
+            className="px-3 py-1.5 bg-purple-800 hover:bg-purple-700 text-purple-100 text-xs font-semibold rounded-lg transition-colors"
+          >
+            🎲 Randomize
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isPending}
+            className="px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors"
+          >
+            {isPending ? 'Saving…' : 'Save Draft'}
+          </button>
+        </div>
       </div>
 
       {saveError && (
@@ -527,6 +571,33 @@ function DraftView({
         </p>
       )}
 
+      {/* Pick Order view */}
+      {subView === 'pickorder' && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-300">Snake Draft Order — {N} teams · {N * 4} picks</h2>
+            <span className="text-xs text-gray-500">Odd rounds left→right · Even rounds right→left</span>
+          </div>
+          <div className="grid grid-cols-4 divide-x divide-gray-800">
+            {[1, 2, 3, 4].map((round) => (
+              <div key={round} className="flex flex-col">
+                <div className="px-3 py-2 bg-gray-800/60 text-xs font-semibold text-gray-400 uppercase tracking-wide text-center">
+                  Round {round}
+                </div>
+                {snakePicks.filter((p) => p.round === round).map((p) => (
+                  <div key={p.pickNum} className="flex items-center gap-2 px-3 py-2.5 border-t border-gray-800/50">
+                    <span className="text-xs text-gray-600 w-5 shrink-0">{p.pickNum}</span>
+                    <span className="text-sm text-gray-100 truncate">{p.member.displayName}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Teams view */}
+      {subView === 'teams' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Player pool */}
@@ -584,9 +655,7 @@ function DraftView({
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-gray-100">Teams</h2>
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-            {leagueSeason.members
-              .sort((a, b) => a.draftPosition - b.draftPosition)
-              .map((member) => {
+            {draftOrder.map((member) => {
                 const picks = memberPicks[member.userId] ?? []
                 const isFull = picks.length >= 4
                 const canReceive = !!selectedPlayer && !isFull
@@ -633,6 +702,7 @@ function DraftView({
           </div>
         </div>
       </div>
+      )} {/* end subView === 'teams' */}
     </div>
   )
 }
