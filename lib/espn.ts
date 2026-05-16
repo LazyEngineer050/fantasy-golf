@@ -81,18 +81,34 @@ function extractTeeTime(linescore: RawLinescore | undefined): string | null {
 }
 
 function determineCutLine(competitors: RawCompetitor[]): number {
-  // Build sorted list of 2-round totals (raw strokes, lower = better)
+  // Derive actual cut line from who made it to round 3/4:
+  // worst 2-round total among players still in the field = the real cut line.
+  const madeR3 = competitors.filter((c) => {
+    const r3 = roundLinescore(c.linescores ?? [], 3)?.value ?? 0
+    const r4 = roundLinescore(c.linescores ?? [], 4)?.value ?? 0
+    return r3 > 0 || r4 > 0
+  })
+
+  if (madeR3.length > 0) {
+    const totals = madeR3.map((c) => {
+      const r1 = roundLinescore(c.linescores ?? [], 1)?.value ?? 0
+      const r2 = roundLinescore(c.linescores ?? [], 2)?.value ?? 0
+      return r1 + r2
+    })
+    return Math.max(...totals)
+  }
+
+  // Cut hasn't happened yet (rounds 1-2 in progress) — estimate from sorted totals
   const totals = competitors
     .map((c) => {
       const r1 = roundLinescore(c.linescores ?? [], 1)?.value ?? 9999
       const r2 = roundLinescore(c.linescores ?? [], 2)?.value ?? 9999
-      // Only include if player has completed 2 rounds
       return r1 < 9999 && r2 < 9999 ? r1 + r2 : 9999
     })
     .filter((t) => t < 9999)
     .sort((a, b) => a - b)
 
-  // Use top 70 to cover majors (PGA Championship cuts top 70, not top 50)
+  // Use top 70 as a safe estimate (covers both regular events and majors)
   const cutIndex = Math.min(69, totals.length - 1)
   return totals[cutIndex] ?? 9999
 }
@@ -109,7 +125,7 @@ function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd'
   // Has r1 but no r2 → withdrew or incomplete (treat as wd)
   if (r1 > 0 && r2 === 0) return 'wd'
 
-  // If player has r3 or r4 data they definitively made the cut — no inference needed
+  // Player has r3/r4 data → definitively made the cut
   if (r3 > 0 || r4 > 0) return 'active'
 
   return r1 + r2 <= cutLine ? 'active' : 'cut'
