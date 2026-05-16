@@ -359,6 +359,24 @@ export default function Leaderboard({
                 ? allTodayScores.reduce((a, b) => a + b, 0) / allTodayScores.length
                 : null
 
+              // Turd sizing: compute globally so sizes are relative across all players
+              const allTurdPicks = fieldAvgToday === null ? [] : allPicks.filter((p) =>
+                p.today_strokes !== null && (
+                  p.today_strokes >= fieldAvgToday + 3 ||
+                  (p.today_strokes > 0 && fieldAvgToday < 0)
+                )
+              )
+              const turdScores = allTurdPicks.map((p) => p.today_strokes!)
+              const minTurd = turdScores.length > 0 ? Math.min(...turdScores) : 0
+              const maxTurd = turdScores.length > 0 ? Math.max(...turdScores) : 0
+              // Map player_id → font size string: best turd = 0.8rem, worst = 2rem
+              const turdSizeMap = new Map<string, string>(
+                allTurdPicks.map((p) => {
+                  const t = maxTurd === minTurd ? 1 : (p.today_strokes! - minTurd) / (maxTurd - minTurd)
+                  return [p.player_id, `${(0.8 + t * 1.2).toFixed(2)}rem`]
+                })
+              )
+
               return standings.map((team, idx) => {
                 const leaderScore = standings[0]?.total_strokes
                 const isLeader = team.total_strokes != null && leaderScore != null && team.total_strokes === leaderScore
@@ -371,17 +389,6 @@ export default function Leaderboard({
                   if (b.total_strokes === null) return -1
                   return a.total_strokes - b.total_strokes
                 })
-
-                // Turds: 3+ strokes worse than field avg, OR positive while avg is negative
-                const turdPlayerIds = new Set(
-                  fieldAvgToday === null ? [] :
-                  picks.filter((p) =>
-                    p.today_strokes !== null && (
-                      p.today_strokes >= fieldAvgToday + 3 ||
-                      (p.today_strokes > 0 && fieldAvgToday < 0)
-                    )
-                  ).map((p) => p.player_id)
-                )
 
                 return (
                   <div
@@ -464,7 +471,7 @@ export default function Leaderboard({
                                         {pick.player_name}
                                       </span>
                                       {isOverallLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
-                                      {turdPlayerIds.has(pick.player_id) && <span title="Over par today" className="text-base leading-none">💩</span>}
+                                      {turdSizeMap.has(pick.player_id) && <span title="Over par today" style={{ fontSize: turdSizeMap.get(pick.player_id) }} className="leading-none">💩</span>}
                                     </div>
                                   </td>
                                   {/* Total */}
