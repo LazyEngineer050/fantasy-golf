@@ -24,14 +24,13 @@ export async function createTournament(formData: FormData) {
 export async function createLeague(formData: FormData) {
   const name = (formData.get('name') as string).trim()
   const tournamentId = formData.get('tournamentId') as string
-  const seriesId = (formData.get('seriesId') as string) || null
 
   if (!name || !tournamentId) return { error: 'Name and tournament are required' }
 
   const supabase = await createSupabaseServerClient()
   const { error } = await supabase
     .from('leagues')
-    .insert({ name, tournament_id: tournamentId, status: 'drafting', series_id: seriesId })
+    .insert({ name, tournament_id: tournamentId, status: 'drafting' })
 
   if (error) return { error: error.message }
   revalidatePath('/admin')
@@ -107,36 +106,6 @@ export async function initDraft(leagueId: string) {
   return { ok: true }
 }
 
-export async function createSeries(formData: FormData) {
-  const name = (formData.get('name') as string).trim()
-  const yearStr = formData.get('year') as string
-  const year = yearStr ? parseInt(yearStr, 10) : null
-
-  if (!name) return { error: 'Name is required' }
-
-  const supabase = await createSupabaseServerClient()
-  const { error } = await supabase
-    .from('series')
-    .insert({ name, year: year && !isNaN(year) ? year : null })
-
-  if (error) return { error: error.message }
-  revalidatePath('/admin')
-  revalidatePath('/')
-  return { ok: true }
-}
-
-export async function assignLeagueToSeries(leagueId: string, seriesId: string | null) {
-  const supabase = await createSupabaseServerClient()
-  const { error } = await supabase
-    .from('leagues')
-    .update({ series_id: seriesId || null })
-    .eq('id', leagueId)
-
-  if (error) return { error: error.message }
-  revalidatePath('/admin')
-  revalidatePath('/')
-  return { ok: true }
-}
 
 export async function setLeagueStatus(leagueId: string, status: 'drafting' | 'live' | 'completed') {
   const supabase = await createSupabaseServerClient()

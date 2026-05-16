@@ -18,8 +18,6 @@ interface Props {
   standings: TeamStanding[]
   currentUserId: string | null
   allLeagues: { id: string; name: string }[]
-  seriesId: string | null
-  seriesName: string | null
 }
 
 function fmtScore(n: number | null): string {
@@ -85,8 +83,6 @@ export default function Leaderboard({
   standings: initialStandings,
   currentUserId,
   allLeagues,
-  seriesId,
-  seriesName,
 }: Props) {
   const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
@@ -270,12 +266,6 @@ export default function Leaderboard({
       {/* Breadcrumb nav */}
       <div className="bg-gray-950 border-b border-gray-800/50 px-6 py-2 flex items-center gap-2 text-sm">
         <Link href="/standings" className="text-gray-500 hover:text-green-400 transition-colors font-medium">⛳ ButteryBiscuits</Link>
-        {seriesId && seriesName && (
-          <>
-            <span className="text-gray-700">/</span>
-            <Link href={`/series/${seriesId}`} className="text-gray-500 hover:text-green-400 transition-colors">{seriesName}</Link>
-          </>
-        )}
         <span className="text-gray-700">/</span>
         {allLeagues.length > 1 ? (
           <select
