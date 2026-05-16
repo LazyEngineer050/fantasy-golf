@@ -92,20 +92,25 @@ function determineCutLine(competitors: RawCompetitor[]): number {
     .filter((t) => t < 9999)
     .sort((a, b) => a - b)
 
-  // Top 50 + ties: cut line = score of the 50th player
-  const cutIndex = Math.min(49, totals.length - 1)
+  // Use top 70 to cover majors (PGA Championship cuts top 70, not top 50)
+  const cutIndex = Math.min(69, totals.length - 1)
   return totals[cutIndex] ?? 9999
 }
 
 function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd' {
   const r1 = roundLinescore(c.linescores ?? [], 1)?.value ?? 0
   const r2 = roundLinescore(c.linescores ?? [], 2)?.value ?? 0
+  const r3 = roundLinescore(c.linescores ?? [], 3)?.value ?? 0
+  const r4 = roundLinescore(c.linescores ?? [], 4)?.value ?? 0
 
   // No round scores at all → likely withdrew before the tournament
   if (r1 === 0 && r2 === 0) return 'wd'
 
   // Has r1 but no r2 → withdrew or incomplete (treat as wd)
   if (r1 > 0 && r2 === 0) return 'wd'
+
+  // If player has r3 or r4 data they definitively made the cut — no inference needed
+  if (r3 > 0 || r4 > 0) return 'active'
 
   return r1 + r2 <= cutLine ? 'active' : 'cut'
 }
