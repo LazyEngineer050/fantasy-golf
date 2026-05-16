@@ -93,14 +93,14 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
     const activeIds = activePlayers.map((p) => p.player_id)
     const { data: activeScores } = await supabase
       .from('player_scores')
-      .select('thru')
+      .select('thru, r4_strokes')
       .eq('tournament_id', tournamentId)
       .in('player_id', activeIds)
 
     const allFinished =
       activeScores != null &&
       activeScores.length > 0 &&
-      activeScores.every((s) => s.thru === 'F')
+      activeScores.every((s) => s.thru === 'F' && s.r4_strokes !== null)
 
     if (allFinished && (liveLTs?.length ?? 0) > 0) {
       await supabase
