@@ -372,8 +372,11 @@ export default function Leaderboard({
                   return a.total_strokes - b.total_strokes
                 })
 
-                // Turds: everyone gets a turd
-                const turdPlayerIds = new Set(picks.map((p) => p.player_id))
+                // Turds: player is 3+ strokes worse than the drafted field average today
+                const turdPlayerIds = new Set(
+                  fieldAvgToday === null ? [] :
+                  picks.filter((p) => p.today_strokes !== null && p.today_strokes >= fieldAvgToday + 3).map((p) => p.player_id)
+                )
 
                 return (
                   <div
