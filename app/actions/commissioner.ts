@@ -298,10 +298,14 @@ export async function initializeDraft(
   // Find or create league_tournament (status = drafting)
   const { data: existingLT } = await supabase
     .from('league_tournaments')
-    .select('id')
+    .select('id, status')
     .eq('league_season_id', leagueSeasonId)
     .eq('tournament_id', tournamentId)
     .maybeSingle()
+
+  if (existingLT && (existingLT.status === 'live' || existingLT.status === 'completed')) {
+    return { error: `This tournament has already been drafted and is ${existingLT.status}. Go to Manage to make changes.` }
+  }
 
   let leagueTournamentId: string
   if (existingLT) {
