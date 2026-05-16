@@ -11,7 +11,7 @@ import type { TeamStanding } from '@/lib/types'
 const HISTORY_CAP = 10
 
 interface Props {
-  leagueId: string
+  leagueTournamentId: string
   leagueName: string
   tournamentName: string
   leagueStatus: 'drafting' | 'live' | 'completed'
@@ -76,7 +76,7 @@ function computeWinnings(standings: TeamStanding[]): Map<string, number> {
 }
 
 export default function Leaderboard({
-  leagueId,
+  leagueTournamentId,
   leagueName,
   tournamentName,
   leagueStatus,
@@ -89,7 +89,7 @@ export default function Leaderboard({
   const [status, setStatus] = useState(leagueStatus)
   const [view, setView] = useState<'teams' | 'players'>('teams')
   const statusRef = useRef(leagueStatus)
-  const STORAGE_KEY = `score-history-${leagueId}`
+  const STORAGE_KEY = `score-history-${leagueTournamentId}`
 
   // scoreHistory[i] = { userId -> total_strokes } snapshot — persisted to localStorage
   const scoreHistory = useRef<Record<string, number>[]>([])
@@ -194,7 +194,7 @@ export default function Leaderboard({
         r3_strokes: number | null
         r4_strokes: number | null
       }
-      const res = await fetch(`/api/scores?leagueId=${leagueId}`).catch(() => null)
+      const res = await fetch(`/api/scores?leagueTournamentId=${leagueTournamentId}`).catch(() => null)
       if (!res?.ok) return
       const fresh: { teams: TeamRow[]; players: PlayerRow[]; status: string | null } = await res.json()
 
@@ -228,17 +228,17 @@ export default function Leaderboard({
     poll() // immediate on mount
     const interval = setInterval(poll, 30_000)
     return () => clearInterval(interval)
-  }, [leagueId])
+  }, [leagueTournamentId])
 
   // Supabase Realtime subscription
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
 
     const channel = supabase
-      .channel(`dashboard:${leagueId}`)
+      .channel(`dashboard:${leagueTournamentId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'team_scores', filter: `league_id=eq.${leagueId}` },
+        { event: '*', schema: 'public', table: 'team_scores', filter: `league_tournament_id=eq.${leagueTournamentId}` },
         (payload) => {
               setStandings((prev) => {
             const updated = payload.new as { user_id: string; total_strokes: number | null; rank: number | null }
@@ -259,7 +259,7 @@ export default function Leaderboard({
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [leagueId])
+  }, [leagueTournamentId])
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -269,7 +269,7 @@ export default function Leaderboard({
         <span className="text-gray-700">/</span>
         {allLeagues.length > 1 ? (
           <select
-            value={leagueId}
+            value={leagueTournamentId}
             onChange={(e) => router.push(`/dashboard/${e.target.value}`)}
             className="bg-transparent text-gray-400 focus:outline-none cursor-pointer hover:text-green-400 transition-colors"
           >

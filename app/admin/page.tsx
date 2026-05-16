@@ -4,51 +4,47 @@ import AdminPanel from './_components/AdminPanel'
 export default async function AdminPage() {
   const supabase = await createSupabaseServerClient()
 
-  const [tournamentsResult, leaguesResult, usersResult, membersResult] = await Promise.all([
+  const [tournamentsResult, ltResult] = await Promise.all([
     supabase.from('tournaments').select('id, name, espn_event_id, start_date, end_date').order('start_date', { ascending: false }),
-    supabase.from('leagues').select('id, name, status, tournament_id, tournaments(name)').order('name', { ascending: true }),
-    supabase.from('users').select('id, display_name').order('display_name', { ascending: true }),
-    supabase.from('league_members').select('league_id, user_id, draft_position, users(display_name)').order('draft_position', { ascending: true }),
+    supabase
+      .from('league_tournaments')
+      .select('id, status, tournament_id, league_season_id, tournaments(name), league_seasons(season_id, league_id, seasons(year), leagues(name))')
+      .order('created_at', { ascending: false }),
   ])
 
   type Tournament = { id: string; name: string; espn_event_id: string | null; start_date: string; end_date: string }
-  type League = { id: string; name: string; status: 'drafting' | 'live' | 'completed'; tournament_id: string; tournaments: { name: string } | null }
-  type User = { id: string; display_name: string }
-  type Member = { league_id: string; user_id: string; draft_position: number; users: { display_name: string } | null }
 
-  const tournaments = (tournamentsResult.data ?? []) as unknown as Tournament[]
-  const leagues = (leaguesResult.data ?? []) as unknown as League[]
-  const users = (usersResult.data ?? []) as unknown as User[]
-  const members = (membersResult.data ?? []) as unknown as Member[]
-
-  const membersByLeague = new Map<string, Array<{ user_id: string; draft_position: number; display_name: string }>>()
-  for (const m of members) {
-    if (!membersByLeague.has(m.league_id)) membersByLeague.set(m.league_id, [])
-    membersByLeague.get(m.league_id)!.push({
-      user_id: m.user_id,
-      draft_position: m.draft_position,
-      display_name: m.users?.display_name ?? 'Unknown',
-    })
+  type LTRow = {
+    id: string
+    status: 'drafting' | 'live' | 'completed'
+    tournaments: { name: string } | null
+    league_seasons: {
+      season_id: string
+      league_id: string
+      seasons: { year: number } | null
+      leagues: { name: string } | null
+    } | null
   }
 
-  const leaguesWithMembers = leagues.map((l) => ({
-    ...l,
-    tournament_name: l.tournaments?.name ?? 'Unknown',
-    members: membersByLeague.get(l.id) ?? [],
+  const tournaments = (tournamentsResult.data ?? []) as unknown as Tournament[]
+  const ltRows = (ltResult.data ?? []) as unknown as LTRow[]
+
+  const leagueTournaments = ltRows.map((lt) => ({
+    id: lt.id,
+    status: lt.status,
+    tournament_name: lt.tournaments?.name ?? 'Unknown',
+    league_name: lt.league_seasons?.leagues?.name ?? 'Unknown',
+    season_year: lt.league_seasons?.seasons?.year ?? null,
   }))
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-5">
         <h1 className="text-2xl font-bold text-green-400">⛳ ButteryBiscuits — Admin</h1>
-        <p className="text-gray-400 text-sm mt-1">Manage tournaments, leagues, and members</p>
+        <p className="text-gray-400 text-sm mt-1">System admin: manage tournaments</p>
       </div>
       <div className="max-w-3xl mx-auto p-6">
-        <AdminPanel
-          tournaments={tournaments}
-          leagues={leaguesWithMembers}
-          users={users}
-        />
+        <AdminPanel tournaments={tournaments} leagueTournaments={leagueTournaments} />
       </div>
     </div>
   )

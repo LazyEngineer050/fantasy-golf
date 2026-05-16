@@ -5,73 +5,73 @@ import Leaderboard from './_components/Leaderboard'
 import type { TeamStanding } from '@/lib/types'
 
 interface PageProps {
-  params: Promise<{ leagueId: string }>
+  params: Promise<{ leagueTournamentId: string }>
 }
 
 export default async function DashboardPage({ params }: PageProps) {
-  const { leagueId } = await params
+  const { leagueTournamentId } = await params
   const cookieStore = await cookies()
   const currentUserId = cookieStore.get('user_id')?.value ?? null
 
   const supabase = await createSupabaseServerClient()
 
-  // Load all leagues for the switcher — show tournament name, not league name
-  const { data: allLeaguesRaw } = await supabase
-    .from('leagues')
-    .select('id, tournaments(name, start_date)')
-    .order('tournament_id', { ascending: true })
+  // Load all league_tournaments for the switcher
+  const { data: allLTsRaw } = await supabase
+    .from('league_tournaments')
+    .select('id, tournament_id, tournaments(name, start_date)')
+    .order('created_at', { ascending: false })
 
-  type AllLeagueRow = { id: string; tournaments: { name: string; start_date: string } | null }
-  const allLeagues = ((allLeaguesRaw ?? []) as unknown as AllLeagueRow[])
-    .filter((l) => l.tournaments)
+  type AllLTRow = { id: string; tournament_id: string; tournaments: { name: string; start_date: string } | null }
+  const allLeagues = ((allLTsRaw ?? []) as unknown as AllLTRow[])
+    .filter((lt) => lt.tournaments)
     .sort((a, b) => b.tournaments!.start_date.localeCompare(a.tournaments!.start_date))
-    .map((l) => {
-      const year = new Date(l.tournaments!.start_date + 'T12:00:00Z').getFullYear()
-      return { id: l.id, name: `${l.tournaments!.name} ${year}` }
+    .map((lt) => {
+      const year = new Date(lt.tournaments!.start_date + 'T12:00:00Z').getFullYear()
+      return { id: lt.id, name: `${lt.tournaments!.name} ${year}` }
     })
 
-  // Load league + tournament
-  const { data: leagueRaw } = await supabase
-    .from('leagues')
-    .select('*, tournaments(*)')
-    .eq('id', leagueId)
+  // Load this league_tournament
+  const { data: ltRaw } = await supabase
+    .from('league_tournaments')
+    .select('id, status, tournament_id, league_season_id, tournaments(*), league_seasons(league_id, leagues(name))')
+    .eq('id', leagueTournamentId)
     .single()
 
-  if (!leagueRaw) notFound()
+  if (!ltRaw) notFound()
 
-  const league = leagueRaw as unknown as {
+  type LTRow = {
     id: string
-    name: string
     status: 'drafting' | 'live' | 'completed'
     tournament_id: string
-    tournaments: { id: string; name: string; espn_event_id: string | null }
+    league_season_id: string
+    tournaments: { id: string; name: string; espn_event_id: string | null } | null
+    league_seasons: { league_id: string; leagues: { name: string } | null } | null
   }
 
-  const tournamentId: string = league.tournaments?.id ?? league.tournament_id
+  const lt = ltRaw as unknown as LTRow
+  const tournamentId: string = lt.tournaments?.id ?? lt.tournament_id
+  const leagueName = lt.league_seasons?.leagues?.name ?? 'ButteryBiscuits'
 
   type TeamScoreRow = { user_id: string; total_strokes: number | null; rank: number | null; users: { display_name: string } | null }
 
-  // Load team scores + user names
   const { data: teamScoresRaw } = await supabase
     .from('team_scores')
     .select('user_id, total_strokes, rank, users(display_name)')
-    .eq('league_id', leagueId)
+    .eq('league_tournament_id', leagueTournamentId)
     .order('rank', { ascending: true })
 
   const teamScores = (teamScoresRaw ?? []) as unknown as TeamScoreRow[]
 
-  // Load all picks for this league — include round (draft round)
   type RawPick = { user_id: string; player_id: string; round: number }
   const { data: picksRaw } = await supabase
     .from('picks')
     .select('user_id, player_id, round')
-    .eq('league_id', leagueId)
+    .eq('league_tournament_id', leagueTournamentId)
     .order('round', { ascending: true })
 
   const picks = (picksRaw ?? []) as unknown as RawPick[]
   const playerIds = [...new Set(picks.map((p) => p.player_id))]
 
-  // Fetch player names and scores in parallel
   type ScoreRow = {
     player_id: string
     total_strokes: number | null
@@ -136,16 +136,15 @@ export default async function DashboardPage({ params }: PageProps) {
     picks: picksByUser.get(ts.user_id) ?? [],
   }))
 
-  // If no team_scores yet (draft just ended), still show members
   if (standings.length === 0) {
     type MemberRow = { user_id: string; users: { display_name: string } | null }
-    const { data: membersRaw2 } = await supabase
-      .from('league_members')
+    const { data: membersRaw } = await supabase
+      .from('league_season_members')
       .select('user_id, users(display_name)')
-      .eq('league_id', leagueId)
+      .eq('league_season_id', lt.league_season_id)
 
-    const members2 = (membersRaw2 ?? []) as unknown as MemberRow[]
-    for (const m of members2) {
+    const members = (membersRaw ?? []) as unknown as MemberRow[]
+    for (const m of members) {
       standings.push({
         user_id: m.user_id,
         display_name: m.users?.display_name ?? 'Unknown',
@@ -158,10 +157,10 @@ export default async function DashboardPage({ params }: PageProps) {
 
   return (
     <Leaderboard
-      leagueId={leagueId}
-      leagueName={league.name}
-      tournamentName={league.tournaments?.name ?? 'Tournament'}
-      leagueStatus={league.status}
+      leagueTournamentId={leagueTournamentId}
+      leagueName={leagueName}
+      tournamentName={lt.tournaments?.name ?? 'Tournament'}
+      leagueStatus={lt.status}
       standings={standings}
       currentUserId={currentUserId}
       allLeagues={allLeagues}

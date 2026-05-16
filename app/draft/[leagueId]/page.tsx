@@ -9,42 +9,46 @@ interface PageProps {
 }
 
 export default async function DraftPage({ params }: PageProps) {
-  const { leagueId } = await params
+  // Note: leagueId param holds a league_tournament_id
+  const { leagueId: leagueTournamentId } = await params
   const cookieStore = await cookies()
   const userId = cookieStore.get('user_id')?.value ?? null
 
   const supabase = await createSupabaseServerClient()
 
-  // Load league
-  const { data: leagueRaw } = await supabase
-    .from('leagues')
-    .select('*, tournaments(*)')
-    .eq('id', leagueId)
+  // Load league_tournament
+  const { data: ltRaw } = await supabase
+    .from('league_tournaments')
+    .select('id, status, tournament_id, league_season_id, tournaments(*), league_seasons(leagues(name))')
+    .eq('id', leagueTournamentId)
     .single()
 
-  if (!leagueRaw) notFound()
+  if (!ltRaw) notFound()
 
-  const league = leagueRaw as unknown as {
+  const lt = ltRaw as unknown as {
     id: string
-    name: string
     status: 'drafting' | 'live' | 'completed'
     tournament_id: string
-    tournaments: { id: string; name: string; espn_event_id: string | null }
+    league_season_id: string
+    tournaments: { id: string; name: string; espn_event_id: string | null } | null
+    league_seasons: { leagues: { name: string } | null } | null
   }
 
-  const tournamentId: string = league.tournaments?.id ?? league.tournament_id
+  const tournamentId: string = lt.tournaments?.id ?? lt.tournament_id
+  const leagueName = lt.league_seasons?.leagues?.name ?? 'ButteryBiscuits'
 
-  // Load draft state + members with display names
-  const { data: state } = await supabase
+  // Load draft state
+  const { data: stateRaw } = await supabase
     .from('draft_state')
     .select('*')
-    .eq('league_id', leagueId)
+    .eq('league_tournament_id', leagueTournamentId)
     .single()
 
+  // Load members via league_season_members
   const { data: membersRaw } = await supabase
-    .from('league_members')
+    .from('league_season_members')
     .select('user_id, draft_position, users(display_name)')
-    .eq('league_id', leagueId)
+    .eq('league_season_id', lt.league_season_id)
     .order('draft_position', { ascending: true })
 
   const members = (membersRaw ?? []).map((m: any) => ({
@@ -53,8 +57,8 @@ export default async function DraftPage({ params }: PageProps) {
     display_name: m.users?.display_name ?? 'Unknown',
   }))
 
-  const typedState = state as unknown as {
-    league_id: string; round: number; pick_number: number
+  const typedState = stateRaw as unknown as {
+    league_tournament_id: string; round: number; pick_number: number
     on_clock_user_id: string | null; direction: number; started_at: string
   } | null
 
@@ -65,9 +69,16 @@ export default async function DraftPage({ params }: PageProps) {
   // Load existing picks
   const { data: picksRaw } = await supabase
     .from('picks')
-    .select('id, pick_number, round, user_id, player_id, players(name)')
-    .eq('league_id', leagueId)
+    .select('id, pick_number, round, user_id, player_id')
+    .eq('league_tournament_id', leagueTournamentId)
     .order('pick_number', { ascending: true })
+
+  const pickPlayerIds = [...new Set((picksRaw ?? []).map((p: any) => p.player_id))]
+  const { data: pickPlayersRaw } = pickPlayerIds.length > 0
+    ? await supabase.from('players').select('id, name').in('id', pickPlayerIds)
+    : { data: [] }
+
+  const pickPlayerMap = new Map(((pickPlayersRaw ?? []) as any[]).map((p) => [p.id, p.name]))
 
   const picks: PickWithPlayer[] = (picksRaw ?? []).map((p: any) => ({
     id: p.id,
@@ -75,56 +86,48 @@ export default async function DraftPage({ params }: PageProps) {
     round: p.round,
     user_id: p.user_id,
     player_id: p.player_id,
-    player_name: p.players?.name ?? 'Unknown',
+    player_name: pickPlayerMap.get(p.player_id) ?? 'Unknown',
   }))
 
-  // Load available (active, un-drafted) players with scores
+  // Load available players with scores
   const draftedPlayerIds = picks.map((p) => p.player_id)
-
-  const { data: availableRaw } = await supabase
-    .from('tournament_players')
-    .select('player_id, status, players(id, name, espn_player_id)')
-    .eq('tournament_id', tournamentId)
-    .eq('status', 'active')
-
-  const availableFiltered = (availableRaw ?? []).filter(
-    (tp: any) => !draftedPlayerIds.includes(tp.player_id)
-  )
-
-  const availablePlayerIds = availableFiltered.map((tp: any) => tp.player_id)
 
   const { data: scoresRaw } = await supabase
     .from('player_scores')
     .select('player_id, total_strokes, position, thru')
     .eq('tournament_id', tournamentId)
-    .in('player_id', availablePlayerIds.length > 0 ? availablePlayerIds : ['00000000-0000-0000-0000-000000000000'])
 
   const scoresMap = new Map(
     (scoresRaw ?? []).map((s: any) => [s.player_id, s])
   )
 
-  const availablePlayers: AvailablePlayer[] = availableFiltered.map((tp: any) => {
-    const score = scoresMap.get(tp.player_id)
-    return {
-      id: (tp.players as any)?.id ?? tp.player_id,
-      name: (tp.players as any)?.name ?? 'Unknown',
-      espn_player_id: (tp.players as any)?.espn_player_id ?? null,
-      status: tp.status,
-      total_strokes: score?.total_strokes ?? null,
-      position: score?.position ?? null,
-      thru: score?.thru ?? null,
-    }
-  })
+  const { data: allPlayersRaw } = await supabase
+    .from('players')
+    .select('id, name, espn_player_id')
 
-  // My team picks
+  const availablePlayers: AvailablePlayer[] = ((allPlayersRaw ?? []) as any[])
+    .filter((p) => !draftedPlayerIds.includes(p.id))
+    .map((p) => {
+      const score = scoresMap.get(p.id)
+      return {
+        id: p.id,
+        name: p.name,
+        espn_player_id: p.espn_player_id ?? null,
+        status: 'active',
+        total_strokes: score?.total_strokes ?? null,
+        position: score?.position ?? null,
+        thru: score?.thru ?? null,
+      }
+    })
+
   const myPicks = picks.filter((p) => p.user_id === userId)
 
   return (
     <DraftBoard
-      leagueId={leagueId}
-      leagueName={league.name}
-      tournamentName={league.tournaments?.name ?? 'Tournament'}
-      leagueStatus={league.status}
+      leagueId={leagueTournamentId}
+      leagueName={leagueName}
+      tournamentName={lt.tournaments?.name ?? 'Tournament'}
+      leagueStatus={lt.status}
       currentUserId={userId}
       draftState={draftState}
       picks={picks}

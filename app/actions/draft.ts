@@ -8,7 +8,7 @@ import { revalidatePath } from 'next/cache'
  * Submit a pick in the draft.
  * Validates: on-clock user, player not already picked, player status = active.
  */
-export async function submitPick(leagueId: string, playerId: string) {
+export async function submitPick(leagueTournamentId: string, playerId: string) {
   const cookieStore = await cookies()
   const userId = cookieStore.get('user_id')?.value
 
@@ -20,35 +20,25 @@ export async function submitPick(leagueId: string, playerId: string) {
   const { data: state, error: stateErr } = await supabase
     .from('draft_state')
     .select('*')
-    .eq('league_id', leagueId)
+    .eq('league_tournament_id', leagueTournamentId)
     .single()
 
   if (stateErr || !state) return { error: 'Draft not found' }
   if (state.on_clock_user_id !== userId) return { error: 'Not your pick' }
   if (state.round > 4) return { error: 'Draft is complete' }
 
-  // 2. Load league to get tournament_id
-  const { data: league } = await supabase
-    .from('leagues')
-    .select('tournament_id, status')
-    .eq('id', leagueId)
+  // 2. Load league_tournament to get tournament_id and status
+  const { data: lt } = await supabase
+    .from('league_tournaments')
+    .select('tournament_id, status, league_season_id')
+    .eq('id', leagueTournamentId)
     .single()
 
-  if (!league || league.status !== 'drafting') return { error: 'League not in draft' }
+  if (!lt || lt.status !== 'drafting') return { error: 'League not in draft' }
 
-  // 3. Verify player is active in this tournament
-  const { data: tp } = await supabase
-    .from('tournament_players')
-    .select('status')
-    .eq('tournament_id', league.tournament_id)
-    .eq('player_id', playerId)
-    .single()
-
-  if (!tp || tp.status !== 'active') return { error: 'Player is not available' }
-
-  // 4. Insert pick (DB trigger enforces max-4 and uniqueness)
+  // 3. Insert pick
   const { error: pickErr } = await supabase.from('picks').insert({
-    league_id: leagueId,
+    league_tournament_id: leagueTournamentId,
     pick_number: state.pick_number,
     round: state.round,
     user_id: userId,
@@ -57,11 +47,11 @@ export async function submitPick(leagueId: string, playerId: string) {
 
   if (pickErr) return { error: pickErr.message }
 
-  // 5. Advance draft state
+  // 4. Advance draft state
   const { data: members } = await supabase
-    .from('league_members')
+    .from('league_season_members')
     .select('user_id, draft_position')
-    .eq('league_id', leagueId)
+    .eq('league_season_id', lt.league_season_id)
     .order('draft_position', { ascending: true })
 
   if (!members || members.length === 0) return { error: 'No league members' }
@@ -70,20 +60,18 @@ export async function submitPick(leagueId: string, playerId: string) {
   const totalPicks = N * 4
 
   if (state.pick_number >= totalPicks) {
-    // Draft complete
     await supabase
       .from('draft_state')
       .update({ round: 5, on_clock_user_id: null })
-      .eq('league_id', leagueId)
+      .eq('league_tournament_id', leagueTournamentId)
 
     await supabase
-      .from('leagues')
+      .from('league_tournaments')
       .update({ status: 'live' })
-      .eq('id', leagueId)
+      .eq('id', leagueTournamentId)
   } else {
     const nextPickNumber = state.pick_number + 1
 
-    // Snake draft: determine current index in round
     const picksInRound = state.pick_number - (state.round - 1) * N
     const isEndOfRound = picksInRound === N
 
@@ -94,16 +82,13 @@ export async function submitPick(leagueId: string, playerId: string) {
     if (isEndOfRound) {
       nextRound += 1
       nextDirection = state.direction * -1
-      // At the turn, same edge player picks again
       nextPosition = state.direction === 1 ? N - 1 : 0
     } else {
-      // Current position in draft order
       const currentMember = members.find((m) => m.user_id === state.on_clock_user_id)
       const currentPos = currentMember ? currentMember.draft_position - 1 : 0
       nextPosition = currentPos + state.direction
     }
 
-    // Clamp to valid range
     nextPosition = Math.max(0, Math.min(N - 1, nextPosition))
     const nextUser = members[nextPosition]
 
@@ -115,10 +100,10 @@ export async function submitPick(leagueId: string, playerId: string) {
         on_clock_user_id: nextUser.user_id,
         direction: nextDirection,
       })
-      .eq('league_id', leagueId)
+      .eq('league_tournament_id', leagueTournamentId)
   }
 
-  revalidatePath(`/draft/${leagueId}`)
+  revalidatePath(`/draft/${leagueTournamentId}`)
   return { ok: true }
 }
 
@@ -127,7 +112,6 @@ export async function loginOrRegister(displayName: string) {
   const supabase = await createSupabaseServerClient()
   const cookieStore = await cookies()
 
-  // Reuse existing session if cookie present
   const existingId = cookieStore.get('user_id')?.value
   if (existingId) {
     const { data } = await supabase
@@ -153,7 +137,7 @@ export async function loginOrRegister(displayName: string) {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 30, // 30 days
+    maxAge: 60 * 60 * 24 * 30,
   })
 
   return { userId: user.id }

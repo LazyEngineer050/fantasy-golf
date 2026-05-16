@@ -1,98 +1,416 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { saveDraft, deleteTeam, removePlayerPick, addPlayerToTeam, renameTeam, completeLeague } from '@/app/actions/commissioner'
+import {
+  createLeague,
+  ensureLeagueSeason,
+  addLeagueSeasonMember,
+  removeLeagueSeasonMember,
+  createUser,
+  saveDraft,
+  removePlayerPick,
+  addPlayerToTeam,
+  renameTeam,
+  completeLeagueTournament,
+} from '@/app/actions/commissioner'
 import type { CutPlayer } from '@/app/actions/commissioner'
-import type { ExistingTeam } from '@/app/commissioner/page'
+import type {
+  LeagueRow,
+  SeasonRow,
+  LeagueSeasonRow,
+  LeagueTournamentRow,
+  TournamentRow,
+  UserRow,
+  ExistingTeamPicks,
+} from '@/app/commissioner/page'
 
-interface League {
-  id: string
-  name: string
-  status: 'drafting' | 'live' | 'completed'
-  tournamentId: string
-  tournamentName: string
+interface Props {
+  leagues: LeagueRow[]
+  seasons: SeasonRow[]
+  leagueSeasons: LeagueSeasonRow[]
+  leagueTournaments: LeagueTournamentRow[]
+  tournaments: TournamentRow[]
+  users: UserRow[]
+  cutPlayers: CutPlayer[]
+  existingTeamsByLT: Record<string, ExistingTeamPicks[]>
 }
-
-interface Team {
-  id: string
-  name: string
-  players: CutPlayer[]
-}
-
-let _teamIdCounter = 0
-function newTeamId() { return `team-${++_teamIdCounter}` }
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500'
+const btnCls = 'px-4 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white text-sm rounded-lg font-medium transition-colors'
 
 export default function CommissionerBoard({
-  leagues,
+  leagues: initialLeagues,
+  seasons,
+  leagueSeasons: initialLeagueSeasons,
+  leagueTournaments: initialLTs,
+  tournaments,
+  users,
   cutPlayers,
-  existingTeamsByLeague,
-}: {
-  leagues: League[]
-  cutPlayers: CutPlayer[]
-  existingTeamsByLeague: Record<string, ExistingTeam[]>
-}) {
-  const [view, setView] = useState<'draft' | 'manage'>('draft')
-  const [selectedLeagueId, setSelectedLeagueId] = useState(leagues[0]?.id ?? '')
+  existingTeamsByLT,
+}: Props) {
+  const [selectedLeagueId, setSelectedLeagueId] = useState(initialLeagues[0]?.id ?? '')
+  const [view, setView] = useState<'members' | 'draft' | 'manage'>('members')
+
+  // Local state for optimistic updates (server revalidates on save)
+  const [leagues, setLeagues] = useState(initialLeagues)
+  const [leagueSeasons, setLeagueSeasons] = useState(initialLeagueSeasons)
+  const [leagueTournaments] = useState(initialLTs)
 
   const selectedLeague = leagues.find((l) => l.id === selectedLeagueId)
-  const existingTeams = existingTeamsByLeague[selectedLeagueId] ?? []
+
+  // Current season = most recent
+  const currentSeason = seasons[0] ?? null
+
+  // League season for selected league + current season
+  const currentLS = currentSeason
+    ? leagueSeasons.find((ls) => ls.leagueId === selectedLeagueId && ls.seasonId === currentSeason.id)
+    : null
+
+  // League tournaments for selected league (all seasons)
+  const myLeagueTournaments = leagueTournaments.filter((lt) =>
+    leagueSeasons.some((ls) => ls.id === lt.leagueSeasonId && ls.leagueId === selectedLeagueId)
+  )
+
+  // Tournaments not yet drafted for selected league in current season
+  const draftedTournamentIds = new Set(
+    leagueTournaments
+      .filter((lt) => lt.leagueSeasonId === currentLS?.id)
+      .map((lt) => lt.tournamentId)
+  )
+  const availableTournaments = currentSeason
+    ? tournaments.filter(
+        (t) => t.seasonId === currentSeason.id && !draftedTournamentIds.has(t.id)
+      )
+    : []
+
+  const [createLeagueError, setCreateLeagueError] = useState<string | null>(null)
+  const [newLeagueName, setNewLeagueName] = useState('')
+  const [isPendingLeague, startLeagueTransition] = useTransition()
+
+  function handleCreateLeague() {
+    const name = newLeagueName.trim()
+    if (!name) return
+    setCreateLeagueError(null)
+    const fd = new FormData()
+    fd.set('name', name)
+    startLeagueTransition(async () => {
+      const res = await createLeague(fd)
+      if (res?.error) { setCreateLeagueError(res.error); return }
+      setNewLeagueName('')
+      // Page revalidates — leagues will update on next render
+    })
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
 
-      {/* League selector */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-end gap-4">
-        <div className="space-y-1 flex-1 min-w-48">
-          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">League</label>
-          {leagues.length === 0 ? (
-            <p className="text-sm text-yellow-400">No leagues found — create one in <a href="/admin" className="underline">Admin</a> first.</p>
-          ) : (
-            <select
-              value={selectedLeagueId}
-              onChange={(e) => setSelectedLeagueId(e.target.value)}
-              className={`${inputCls} w-full`}
-            >
-              {leagues.map((l) => (
-                <option key={l.id} value={l.id}>{l.name} ({l.tournamentName})</option>
+      {/* ── League selector ── */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1 flex-1 min-w-48">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">League</label>
+            {leagues.length === 0 ? (
+              <p className="text-sm text-yellow-400">No leagues yet — create one below.</p>
+            ) : (
+              <select
+                value={selectedLeagueId}
+                onChange={(e) => { setSelectedLeagueId(e.target.value); setView('members') }}
+                className={`${inputCls} w-full`}
+              >
+                {leagues.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {selectedLeague && (
+            <div className="flex gap-2 ml-auto">
+              {(['members', 'draft', 'manage'] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
+                    view === v ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'
+                  }`}
+                >
+                  {v === 'draft' ? 'New Draft' : v === 'manage' ? `Manage (${myLeagueTournaments.length})` : 'Members'}
+                </button>
               ))}
-            </select>
+            </div>
           )}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 ml-auto">
+        {/* Create league */}
+        <div className="flex gap-2 items-center border-t border-gray-800 pt-3">
+          <input
+            type="text"
+            placeholder="New league name…"
+            value={newLeagueName}
+            onChange={(e) => setNewLeagueName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreateLeague()}
+            className={`${inputCls} flex-1`}
+          />
           <button
-            onClick={() => setView('draft')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${view === 'draft' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'}`}
+            onClick={handleCreateLeague}
+            disabled={isPendingLeague || !newLeagueName.trim()}
+            className={btnCls}
           >
-            New Draft
+            {isPendingLeague ? 'Creating…' : 'Create League'}
           </button>
-          <button
-            onClick={() => setView('manage')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${view === 'manage' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'}`}
-          >
-            Manage Teams
-            {existingTeams.length > 0 && (
-              <span className="ml-1.5 bg-blue-900 text-blue-300 text-xs px-1.5 py-0.5 rounded-full">{existingTeams.length}</span>
+        </div>
+        {createLeagueError && <p className="text-red-400 text-xs">{createLeagueError}</p>}
+      </div>
+
+      {/* ── Main view ── */}
+      {selectedLeague && view === 'members' && (
+        <MembersView
+          league={selectedLeague}
+          seasons={seasons}
+          currentSeason={currentSeason}
+          currentLS={currentLS ?? null}
+          users={users}
+          onLeagueSeasonCreated={(ls) => setLeagueSeasons((prev) => [...prev, ls])}
+        />
+      )}
+
+      {selectedLeague && view === 'draft' && currentLS && (
+        <DraftView
+          leagueSeason={currentLS}
+          availableTournaments={availableTournaments}
+          currentSeason={currentSeason}
+          cutPlayers={cutPlayers}
+        />
+      )}
+
+      {selectedLeague && view === 'draft' && !currentLS && currentSeason && (
+        <NoLeagueSeasonPrompt
+          league={selectedLeague}
+          season={currentSeason}
+          onCreated={(ls) => { setLeagueSeasons((prev) => [...prev, ls]); setView('members') }}
+        />
+      )}
+
+      {selectedLeague && view === 'manage' && (
+        <ManageView
+          leagueTournaments={myLeagueTournaments}
+          leagueSeasons={leagueSeasons}
+          existingTeamsByLT={existingTeamsByLT}
+          cutPlayers={cutPlayers}
+          tournaments={tournaments}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── No League Season Prompt ──────────────────────────────────────────────────
+
+function NoLeagueSeasonPrompt({
+  league,
+  season,
+  onCreated,
+}: {
+  league: LeagueRow
+  season: SeasonRow
+  onCreated: (ls: LeagueSeasonRow) => void
+}) {
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  function handleCreate() {
+    setError(null)
+    startTransition(async () => {
+      const res = await ensureLeagueSeason(league.id, season.id)
+      if ('error' in res) { setError(res.error); return }
+      onCreated({ id: res.id, leagueId: league.id, seasonId: season.id, members: [] })
+    })
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center space-y-4">
+      <p className="text-gray-300">
+        <span className="font-semibold text-gray-100">{league.name}</span> doesn&apos;t have a {season.year} season yet.
+      </p>
+      <p className="text-sm text-gray-500">Creating one will copy members from the previous season (if any).</p>
+      <button onClick={handleCreate} disabled={isPending} className={btnCls}>
+        {isPending ? 'Creating…' : `Start ${season.year} Season`}
+      </button>
+      {error && <p className="text-red-400 text-xs">{error}</p>}
+    </div>
+  )
+}
+
+// ─── Members View ─────────────────────────────────────────────────────────────
+
+function MembersView({
+  league,
+  seasons,
+  currentSeason,
+  currentLS,
+  users,
+  onLeagueSeasonCreated,
+}: {
+  league: LeagueRow
+  seasons: SeasonRow[]
+  currentSeason: SeasonRow | null
+  currentLS: LeagueSeasonRow | null
+  users: UserRow[]
+  onLeagueSeasonCreated: (ls: LeagueSeasonRow) => void
+}) {
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [members, setMembers] = useState(currentLS?.members ?? [])
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [newMemberName, setNewMemberName] = useState('')
+  const [addMode, setAddMode] = useState<'existing' | 'new'>('existing')
+
+  const memberUserIds = new Set(members.map((m) => m.userId))
+  const nonMembers = users.filter((u) => !memberUserIds.has(u.id))
+  const nextPosition = members.length + 1
+
+  function notify(msg: string, isError = false) {
+    setError(isError ? msg : null)
+    setSuccess(isError ? null : msg)
+    setTimeout(() => { setError(null); setSuccess(null) }, 3000)
+  }
+
+  // If no current league_season, prompt to create one
+  if (!currentLS) {
+    if (!currentSeason) return <p className="text-gray-500 text-sm text-center py-8">No seasons available. Ask your system admin to set one up.</p>
+    return (
+      <NoLeagueSeasonPrompt
+        league={league}
+        season={currentSeason}
+        onCreated={(ls) => { onLeagueSeasonCreated(ls); setMembers([]) }}
+      />
+    )
+  }
+
+  function handleRemove(userId: string, displayName: string) {
+    if (!confirm(`Remove ${displayName} from the ${currentSeason?.year} season?`)) return
+    startTransition(async () => {
+      const res = await removeLeagueSeasonMember(currentLS!.id, userId)
+      if (res?.error) { notify(res.error, true); return }
+      setMembers((prev) => prev.filter((m) => m.userId !== userId))
+      notify(`${displayName} removed.`)
+    })
+  }
+
+  function handleAdd() {
+    startTransition(async () => {
+      let userId = selectedUserId
+
+      if (addMode === 'new') {
+        const nameToAdd = newMemberName.trim()
+        if (!nameToAdd) { notify('Enter a name', true); return }
+        const res = await createUser(nameToAdd)
+        if ('error' in res) { notify(res.error, true); return }
+        userId = res.id
+      }
+
+      if (!userId) { notify('Select a member', true); return }
+
+      const fd = new FormData()
+      fd.set('leagueSeasonId', currentLS!.id)
+      fd.set('userId', userId)
+      fd.set('draftPosition', String(nextPosition))
+      const res = await addLeagueSeasonMember(fd)
+      if (res?.error) { notify(res.error, true); return }
+
+      const name = addMode === 'new' ? newMemberName.trim() : users.find((u) => u.id === userId)?.displayName ?? userId
+      setMembers((prev) => [...prev, { userId, displayName: name, draftPosition: nextPosition }])
+      setNewMemberName('')
+      setSelectedUserId('')
+      notify(`${name} added.`)
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-100">
+            {league.name} — {currentSeason?.year} Season Members
+          </h2>
+          <span className="text-xs text-gray-500">{members.length} member{members.length !== 1 ? 's' : ''}</span>
+        </div>
+
+        {(error || success) && (
+          <p className={`text-sm font-medium rounded-lg px-3 py-2 border ${error ? 'text-red-400 bg-red-950 border-red-800' : 'text-green-400 bg-green-950 border-green-800'}`}>
+            {error ?? success}
+          </p>
+        )}
+
+        {/* Member list */}
+        <div className="space-y-1">
+          {members.length === 0 && <p className="text-sm text-gray-600 text-center py-4">No members yet — add one below.</p>}
+          {members
+            .sort((a, b) => a.draftPosition - b.draftPosition)
+            .map((m) => (
+              <div key={m.userId} className="flex items-center justify-between py-2 px-3 bg-gray-800 rounded-lg">
+                <span className="text-sm text-gray-100">
+                  <span className="text-gray-500 text-xs mr-2">#{m.draftPosition}</span>
+                  {m.displayName}
+                </span>
+                <button
+                  onClick={() => handleRemove(m.userId, m.displayName)}
+                  disabled={isPending}
+                  className="text-xs text-red-600 hover:text-red-400 disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+        </div>
+
+        {/* Add member */}
+        <div className="border-t border-gray-800 pt-4 space-y-3">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAddMode('existing')}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${addMode === 'existing' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400'}`}
+            >
+              Existing user
+            </button>
+            <button
+              onClick={() => setAddMode('new')}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${addMode === 'new' ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400'}`}
+            >
+              New user
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            {addMode === 'existing' ? (
+              <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} className={`${inputCls} flex-1`}>
+                <option value="">Select user…</option>
+                {nonMembers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.displayName}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder="Display name…"
+                value={newMemberName}
+                onChange={(e) => setNewMemberName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                className={`${inputCls} flex-1`}
+              />
             )}
-          </button>
+            <button onClick={handleAdd} disabled={isPending} className={btnCls}>
+              {isPending ? '…' : 'Add'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {view === 'draft' ? (
-        <DraftView
-          selectedLeague={selectedLeague ?? null}
-          leagues={leagues}
-          cutPlayers={cutPlayers}
-        />
-      ) : (
-        <ManageView
-          selectedLeague={selectedLeague ?? null}
-          existingTeams={existingTeams}
-          cutPlayers={cutPlayers}
-        />
+      {seasons.length > 1 && (
+        <p className="text-xs text-gray-600 text-center">
+          Seasons: {seasons.map((s) => s.year).join(', ')}
+        </p>
       )}
     </div>
   )
@@ -101,89 +419,105 @@ export default function CommissionerBoard({
 // ─── Draft View ───────────────────────────────────────────────────────────────
 
 function DraftView({
-  selectedLeague,
-  leagues,
+  leagueSeason,
+  availableTournaments,
+  currentSeason,
   cutPlayers,
 }: {
-  selectedLeague: { id: string; name: string; tournamentId: string; tournamentName: string } | null
-  leagues: { id: string }[]
+  leagueSeason: LeagueSeasonRow
+  availableTournaments: TournamentRow[]
+  currentSeason: SeasonRow | null
   cutPlayers: CutPlayer[]
 }) {
-  const [teams, setTeams] = useState<Team[]>([])
-  const [selectedPlayer, setSelectedPlayer] = useState<CutPlayer | null>(null)
+  const [selectedTournamentId, setSelectedTournamentId] = useState(availableTournaments[0]?.id ?? '')
   const [search, setSearch] = useState('')
-  const [filterCutOnly, setFilterCutOnly] = useState(true)
-  const [newTeamName, setNewTeamName] = useState('')
+  const [filterCutOnly, setFilterCutOnly] = useState(false)
+  const [selectedPlayer, setSelectedPlayer] = useState<CutPlayer | null>(null)
+  const [memberPicks, setMemberPicks] = useState<Record<string, CutPlayer[]>>(
+    Object.fromEntries(leagueSeason.members.map((m) => [m.userId, []]))
+  )
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedOk, setSavedOk] = useState(false)
+  const [savedLTId, setSavedLTId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
-  const assignedIds = new Set(teams.flatMap((t) => t.players.map((p) => p.espnPlayerId)))
+  const allAssigned = new Set(
+    Object.values(memberPicks).flatMap((players) => players.map((p) => p.espnPlayerId))
+  )
 
   const availablePlayers = cutPlayers
-    .filter((p) => !assignedIds.has(p.espnPlayerId))
+    .filter((p) => !allAssigned.has(p.espnPlayerId))
     .filter((p) => !filterCutOnly || p.madeCut)
     .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
 
-  function addTeam() {
-    const name = newTeamName.trim()
-    if (!name) return
-    setTeams((prev) => [...prev, { id: newTeamId(), name, players: [] }])
-    setNewTeamName('')
-  }
-
-  function removeTeam(teamId: string) {
-    setTeams((prev) => prev.filter((t) => t.id !== teamId))
-  }
-
-  function assignPlayer(teamId: string) {
+  function assignPlayer(userId: string) {
     if (!selectedPlayer) return
-    setTeams((prev) =>
-      prev.map((t) => {
-        if (t.id !== teamId) return t
-        if (t.players.length >= 4) return t
-        if (t.players.find((p) => p.espnPlayerId === selectedPlayer.espnPlayerId)) return t
-        return { ...t, players: [...t.players, selectedPlayer] }
-      })
-    )
+    setMemberPicks((prev) => {
+      const current = prev[userId] ?? []
+      if (current.length >= 4) return prev
+      if (current.find((p) => p.espnPlayerId === selectedPlayer.espnPlayerId)) return prev
+      return { ...prev, [userId]: [...current, selectedPlayer] }
+    })
     setSelectedPlayer(null)
   }
 
-  function removePlayer(teamId: string, espnPlayerId: string) {
-    setTeams((prev) =>
-      prev.map((t) =>
-        t.id === teamId
-          ? { ...t, players: t.players.filter((p) => p.espnPlayerId !== espnPlayerId) }
-          : t
-      )
-    )
+  function removePlayer(userId: string, espnPlayerId: string) {
+    setMemberPicks((prev) => ({
+      ...prev,
+      [userId]: (prev[userId] ?? []).filter((p) => p.espnPlayerId !== espnPlayerId),
+    }))
   }
 
   function handleSave() {
-    if (!selectedLeague) { setSaveError('Select a league first'); return }
-    if (teams.length === 0) { setSaveError('Add at least one team'); return }
+    if (!selectedTournamentId) { setSaveError('Select a tournament first'); return }
+    const picks = leagueSeason.members.map((m) => ({
+      userId: m.userId,
+      players: memberPicks[m.userId] ?? [],
+    }))
+    if (picks.every((p) => p.players.length === 0)) { setSaveError('Assign at least one player'); return }
     setSaveError(null)
     setSavedOk(false)
     startTransition(async () => {
-      const result = await saveDraft(
-        selectedLeague.id,
-        selectedLeague.tournamentId,
-        teams.map((t) => ({ name: t.name, players: t.players }))
-      )
-      if (result?.error) setSaveError(result.error)
-      else setSavedOk(true)
+      const res = await saveDraft(leagueSeason.id, selectedTournamentId, picks)
+      if ('error' in res) { setSaveError(res.error ?? null); return }
+      setSavedOk(true)
+      setSavedLTId(res.leagueTournamentId ?? null)
     })
   }
 
-  const totalAssigned = teams.reduce((n, t) => n + t.players.length, 0)
+  if (availableTournaments.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+        <p className="text-gray-400">All {currentSeason?.year} tournaments have been drafted.</p>
+        <p className="text-xs text-gray-600 mt-2">Add more tournaments in the Admin page, then come back.</p>
+      </div>
+    )
+  }
+
+  if (leagueSeason.members.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+        <p className="text-gray-400">Add members to this league season before drafting.</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Save bar */}
+    <div className="space-y-4">
+      {/* Tournament selector + save bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
-        <p className="text-sm text-gray-400">
-          {teams.length} team{teams.length !== 1 ? 's' : ''} · {totalAssigned} player{totalAssigned !== 1 ? 's' : ''} assigned
-        </p>
+        <div className="space-y-1 flex-1 min-w-48">
+          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
+          <select
+            value={selectedTournamentId}
+            onChange={(e) => setSelectedTournamentId(e.target.value)}
+            className={`${inputCls} w-full`}
+          >
+            {availableTournaments.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
         <button
           onClick={handleSave}
           disabled={isPending}
@@ -191,51 +525,31 @@ function DraftView({
         >
           {isPending ? 'Saving…' : 'Save Draft'}
         </button>
-        {saveError && (
-          <p className="w-full text-red-400 text-sm font-medium bg-red-950 border border-red-800 rounded-lg px-3 py-2">
-            ✗ {saveError}
-          </p>
-        )}
-        {savedOk && (
-          <p className="w-full text-green-400 text-sm font-medium bg-green-950 border border-green-800 rounded-lg px-3 py-2">
-            ✓ Draft saved! League is now live.{' '}
-            {selectedLeague && (
-              <a href={`/dashboard/${selectedLeague.id}`} className="underline">View leaderboard →</a>
-            )}
-          </p>
-        )}
-        {!savedOk && teams.length > 0 && teams.some(t => t.players.length > 0 && t.players.length < 4) && (
-          <p className="w-full text-yellow-500 text-xs">
-            Tip: teams with fewer than 4 players will still be saved.
-          </p>
-        )}
       </div>
+
+      {saveError && (
+        <p className="text-red-400 text-sm font-medium bg-red-950 border border-red-800 rounded-lg px-3 py-2">✗ {saveError}</p>
+      )}
+      {savedOk && (
+        <p className="text-green-400 text-sm font-medium bg-green-950 border border-green-800 rounded-lg px-3 py-2">
+          ✓ Draft saved! League is now live.{' '}
+          {savedLTId && <a href={`/dashboard/${savedLTId}`} className="underline">View leaderboard →</a>}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-        {/* ── Left: Player Pool ── */}
+        {/* Player pool */}
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-lg font-bold text-gray-100">
-              Players
-              <span className="ml-2 text-sm font-normal text-gray-500">
-                ({availablePlayers.length} shown · {assignedIds.size} assigned)
-              </span>
+              Players <span className="text-sm font-normal text-gray-500">({availablePlayers.length} available)</span>
             </h2>
             <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={filterCutOnly}
-                onChange={(e) => setFilterCutOnly(e.target.checked)}
-                className="w-4 h-4 accent-green-500"
-              />
-              <span className="text-sm text-gray-300">Made the cut only</span>
-              <span className="text-xs text-gray-500">
-                ({cutPlayers.filter(p => p.madeCut).length} of {cutPlayers.length})
-              </span>
+              <input type="checkbox" checked={filterCutOnly} onChange={(e) => setFilterCutOnly(e.target.checked)} className="w-4 h-4 accent-green-500" />
+              <span className="text-sm text-gray-300">Made cut only</span>
             </label>
           </div>
-
           <input
             type="text"
             placeholder="Search players…"
@@ -243,22 +557,13 @@ function DraftView({
             onChange={(e) => setSearch(e.target.value)}
             className={`${inputCls} w-full`}
           />
-
           {selectedPlayer && (
             <div className="flex items-center justify-between bg-green-900 border border-green-700 rounded-lg px-3 py-2 text-sm">
               <span className="text-green-200 font-medium">Selected: {selectedPlayer.name}</span>
-              <button onClick={() => setSelectedPlayer(null)} className="text-green-500 hover:text-green-300 text-xs">
-                Deselect
-              </button>
+              <button onClick={() => setSelectedPlayer(null)} className="text-green-500 hover:text-green-300 text-xs">Deselect</button>
             </div>
           )}
-
           <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
-            {availablePlayers.length === 0 && (
-              <p className="text-center text-gray-600 text-sm py-6">
-                {assignedIds.size === cutPlayers.length ? 'All players assigned!' : 'No players match your search'}
-              </p>
-            )}
             {availablePlayers.map((player) => {
               const isSelected = selectedPlayer?.espnPlayerId === player.espnPlayerId
               return (
@@ -266,18 +571,14 @@ function DraftView({
                   key={player.espnPlayerId}
                   onClick={() => setSelectedPlayer(isSelected ? null : player)}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-colors ${
-                    isSelected
-                      ? 'border-green-500 bg-green-900/40 text-green-200'
-                      : player.madeCut
-                      ? 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-100'
-                      : 'border-gray-800 bg-gray-900 hover:border-gray-600 text-gray-400'
+                    isSelected ? 'border-green-500 bg-green-900/40 text-green-200'
+                    : player.madeCut ? 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-100'
+                    : 'border-gray-800 bg-gray-900 hover:border-gray-600 text-gray-400'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{player.name}</span>
-                    {!player.madeCut && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-400 font-medium">CUT</span>
-                    )}
+                    {!player.madeCut && <span className="text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-400 font-medium">CUT</span>}
                   </div>
                   <div className="text-right text-xs text-gray-400">
                     {player.position && <span className="mr-2">{player.position}</span>}
@@ -289,100 +590,58 @@ function DraftView({
           </div>
         </div>
 
-        {/* ── Right: Teams ── */}
+        {/* Teams */}
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-gray-100">Teams</h2>
-
-          {/* Add team */}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Team name…"
-              value={newTeamName}
-              onChange={(e) => setNewTeamName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addTeam()}
-              maxLength={40}
-              className={`${inputCls} flex-1`}
-            />
-            <button
-              onClick={addTeam}
-              disabled={!newTeamName.trim()}
-              className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-sm rounded-lg font-medium transition-colors"
-            >
-              Add Team
-            </button>
-          </div>
-
-          {teams.length === 0 && (
-            <p className="text-gray-600 text-sm text-center py-6">No teams yet — add one above.</p>
-          )}
-
-          <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-            {teams.map((team) => {
-              const isFull = team.players.length >= 4
-              const canReceive = selectedPlayer && !isFull
-
-              return (
-                <div
-                  key={team.id}
-                  onClick={() => canReceive && assignPlayer(team.id)}
-                  className={`rounded-xl border p-4 transition-colors ${
-                    canReceive
-                      ? 'border-green-500 bg-green-950/30 cursor-pointer hover:bg-green-950/50'
-                      : 'border-gray-700 bg-gray-900'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="font-semibold text-gray-100">{team.name}</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">{team.players.length}/4</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); removeTeam(team.id) }}
-                        className="text-xs text-red-600 hover:text-red-400"
-                      >
-                        Remove
-                      </button>
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+            {leagueSeason.members
+              .sort((a, b) => a.draftPosition - b.draftPosition)
+              .map((member) => {
+                const picks = memberPicks[member.userId] ?? []
+                const isFull = picks.length >= 4
+                const canReceive = !!selectedPlayer && !isFull
+                return (
+                  <div
+                    key={member.userId}
+                    onClick={() => canReceive && assignPlayer(member.userId)}
+                    className={`rounded-xl border p-4 transition-colors ${
+                      canReceive ? 'border-green-500 bg-green-950/30 cursor-pointer hover:bg-green-950/50' : 'border-gray-700 bg-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="font-semibold text-gray-100">{member.displayName}</p>
+                      <span className="text-xs text-gray-500">{picks.length}/4</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {picks.map((player, i) => (
+                        <div
+                          key={player.espnPlayerId}
+                          className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-sm text-gray-100">
+                            <span className="text-gray-600 text-xs mr-2">R{i + 1}</span>
+                            {player.name}
+                          </span>
+                          <button onClick={() => removePlayer(member.userId, player.espnPlayerId)} className="text-xs text-gray-600 hover:text-red-400 transition-colors">✕</button>
+                        </div>
+                      ))}
+                      {Array.from({ length: 4 - picks.length }).map((_, i) => (
+                        <div
+                          key={`empty-${i}`}
+                          className={`flex items-center px-3 py-2 rounded-lg border border-dashed text-xs ${
+                            canReceive ? 'border-green-600 text-green-600' : 'border-gray-700 text-gray-700'
+                          }`}
+                        >
+                          {canReceive ? `Click to assign ${selectedPlayer!.name}` : `Round ${picks.length + i + 1} — empty`}
+                        </div>
+                      ))}
                     </div>
                   </div>
-
-                  <div className="space-y-1.5">
-                    {team.players.map((player, i) => (
-                      <div
-                        key={player.espnPlayerId}
-                        className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <span className="text-sm text-gray-100">
-                          <span className="text-gray-600 text-xs mr-2">R{i + 1}</span>
-                          {player.name}
-                        </span>
-                        <button
-                          onClick={() => removePlayer(team.id, player.espnPlayerId)}
-                          className="text-xs text-gray-600 hover:text-red-400 transition-colors"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                    {Array.from({ length: 4 - team.players.length }).map((_, i) => (
-                      <div
-                        key={`empty-${i}`}
-                        className={`flex items-center px-3 py-2 rounded-lg border border-dashed text-xs ${
-                          canReceive
-                            ? 'border-green-600 text-green-600'
-                            : 'border-gray-700 text-gray-700'
-                        }`}
-                      >
-                        {canReceive ? `Click to assign ${selectedPlayer!.name}` : `Round ${team.players.length + i + 1} — empty`}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
         </div>
-
       </div>
     </div>
   )
@@ -391,32 +650,31 @@ function DraftView({
 // ─── Manage View ──────────────────────────────────────────────────────────────
 
 function ManageView({
-  selectedLeague,
-  existingTeams,
+  leagueTournaments,
+  leagueSeasons,
+  existingTeamsByLT,
   cutPlayers,
+  tournaments,
 }: {
-  selectedLeague: { id: string; tournamentId: string; status: string } | null
-  existingTeams: ExistingTeam[]
+  leagueTournaments: LeagueTournamentRow[]
+  leagueSeasons: LeagueSeasonRow[]
+  existingTeamsByLT: Record<string, ExistingTeamPicks[]>
   cutPlayers: CutPlayer[]
+  tournaments: TournamentRow[]
 }) {
+  const [selectedLTId, setSelectedLTId] = useState(leagueTournaments[0]?.id ?? '')
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-
-  // Per-team state: which team is open for adding a player
+  const [teamsByLT, setTeamsByLT] = useState(existingTeamsByLT)
   const [addingToUserId, setAddingToUserId] = useState<string | null>(null)
   const [addSearch, setAddSearch] = useState('')
-  const [filterCutOnly, setFilterCutOnly] = useState(true)
-
-  // Per-team rename state
+  const [filterCutOnly, setFilterCutOnly] = useState(false)
   const [renamingUserId, setRenamingUserId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
-  // Track local team state so UI reflects changes without full reload
-  const [teams, setTeams] = useState<ExistingTeam[]>(existingTeams)
-
-  // Sync if parent re-renders (league switch)
-  // We can't use useEffect safely here without deps; just use key on league instead (handled via key prop on ManageView in parent)
+  const selectedLT = leagueTournaments.find((lt) => lt.id === selectedLTId)
+  const teams = teamsByLT[selectedLTId] ?? []
 
   function notify(msg: string, isError = false) {
     setError(isError ? msg : null)
@@ -424,53 +682,37 @@ function ManageView({
     setTimeout(() => { setError(null); setSuccess(null) }, 3000)
   }
 
-  function handleDeleteTeam(userId: string, displayName: string) {
-    if (!selectedLeague) return
-    if (!confirm(`Delete team "${displayName}"? This cannot be undone.`)) return
-    startTransition(async () => {
-      const res = await deleteTeam(selectedLeague.id, userId)
-      if (res?.error) { notify(res.error, true); return }
-      setTeams((prev) => prev.filter((t) => t.userId !== userId))
-      notify(`Team "${displayName}" deleted.`)
-    })
-  }
-
   function handleRemovePick(userId: string, pickId: string, playerName: string) {
-    if (!selectedLeague) return
+    if (!selectedLT) return
     startTransition(async () => {
-      const res = await removePlayerPick(selectedLeague.id, pickId)
+      const res = await removePlayerPick(selectedLT.id, pickId)
       if (res?.error) { notify(res.error, true); return }
-      setTeams((prev) =>
-        prev.map((t) =>
+      setTeamsByLT((prev) => ({
+        ...prev,
+        [selectedLT.id]: (prev[selectedLT.id] ?? []).map((t) =>
           t.userId !== userId ? t : { ...t, picks: t.picks.filter((p) => p.pickId !== pickId) }
-        )
-      )
+        ),
+      }))
       notify(`Removed ${playerName}.`)
     })
   }
 
   function handleAddPlayer(userId: string, player: CutPlayer) {
-    if (!selectedLeague) return
+    if (!selectedLT) return
     startTransition(async () => {
-      const res = await addPlayerToTeam(selectedLeague.id, userId, selectedLeague.tournamentId, player)
-      if ('error' in res) { notify(res.error, true); return }
-      // Optimistic local update — real round number assigned by server, approximate here
+      const res = await addPlayerToTeam(selectedLT.id, selectedLT.tournamentId, userId, player)
+      if ('error' in res) { notify(res.error ?? 'Unknown error', true); return }
       const team = teams.find((t) => t.userId === userId)
       const nextRound = (team?.picks.length ?? 0) + 1
-      setTeams((prev) =>
-        prev.map((t) =>
+      setTeamsByLT((prev) => ({
+        ...prev,
+        [selectedLT.id]: (prev[selectedLT.id] ?? []).map((t) =>
           t.userId !== userId ? t : {
             ...t,
-            picks: [...t.picks, {
-              pickId: `tmp-${Date.now()}`,
-              playerId: player.espnPlayerId,
-              espnPlayerId: player.espnPlayerId,
-              playerName: player.name,
-              round: nextRound,
-            }],
+            picks: [...t.picks, { pickId: `tmp-${Date.now()}`, playerId: player.espnPlayerId, espnPlayerId: player.espnPlayerId, playerName: player.name, round: nextRound }],
           }
-        )
-      )
+        ),
+      }))
       setAddingToUserId(null)
       setAddSearch('')
       notify(`Added ${player.name}.`)
@@ -478,71 +720,65 @@ function ManageView({
   }
 
   function handleRename(userId: string) {
-    if (!selectedLeague || !renameValue.trim()) return
     startTransition(async () => {
-      const res = await renameTeam(selectedLeague.id, userId, renameValue)
+      const res = await renameTeam(userId, renameValue)
       if (res?.error) { notify(res.error, true); return }
-      setTeams((prev) =>
-        prev.map((t) =>
+      setTeamsByLT((prev) => ({
+        ...prev,
+        [selectedLTId]: (prev[selectedLTId] ?? []).map((t) =>
           t.userId !== userId ? t : { ...t, displayName: renameValue.trim() }
-        )
-      )
+        ),
+      }))
       setRenamingUserId(null)
-      setRenameValue('')
-      notify('Team renamed.')
+      notify('Renamed.')
     })
   }
 
-  if (!selectedLeague) {
-    return <p className="text-gray-500 text-sm text-center py-10">Select a league to manage its teams.</p>
-  }
-
-  if (teams.length === 0) {
-    return (
-      <div className="text-center py-12 text-gray-500">
-        <p className="text-sm">No teams in this league yet.</p>
-        <p className="text-xs mt-1">Use the <span className="text-green-400">New Draft</span> tab to add them.</p>
-      </div>
-    )
-  }
-
-  // Players already on any team (by espnPlayerId)
-  const assignedEspnIds = new Set(
-    teams.flatMap((t) => t.picks.map((p) => p.espnPlayerId).filter(Boolean) as string[])
-  )
-
-  const addCandidates = cutPlayers
-    .filter((p) => !assignedEspnIds.has(p.espnPlayerId))
-    .filter((p) => !filterCutOnly || p.madeCut)
-    .filter((p) => addSearch === '' || p.name.toLowerCase().includes(addSearch.toLowerCase()))
-
   function handleComplete() {
-    if (!selectedLeague) return
-    if (!confirm('Mark this tournament as complete? This stops live scoring and shows the winner screen.')) return
+    if (!selectedLT) return
+    if (!confirm('Mark this tournament as complete? Polling stops and the winner screen shows.')) return
     startTransition(async () => {
-      const res = await completeLeague(selectedLeague.id)
+      const res = await completeLeagueTournament(selectedLT.id)
       if (res?.error) { notify(res.error, true); return }
       notify('Tournament marked complete.')
     })
   }
 
+  if (leagueTournaments.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
+        <p className="text-gray-400">No drafts yet — use New Draft to create one.</p>
+      </div>
+    )
+  }
+
+  const assignedEspnIds = new Set(teams.flatMap((t) => t.picks.map((p) => p.espnPlayerId).filter(Boolean) as string[]))
+  const addCandidates = cutPlayers
+    .filter((p) => !assignedEspnIds.has(p.espnPlayerId))
+    .filter((p) => !filterCutOnly || p.madeCut)
+    .filter((p) => addSearch === '' || p.name.toLowerCase().includes(addSearch.toLowerCase()))
+
   return (
     <div className="space-y-4">
+      {/* LT selector */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-1">
+        <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
+        <select value={selectedLTId} onChange={(e) => { setSelectedLTId(e.target.value); setAddingToUserId(null) }} className={`${inputCls} w-full`}>
+          {leagueTournaments.map((lt) => (
+            <option key={lt.id} value={lt.id}>{lt.tournamentName} · {lt.status}</option>
+          ))}
+        </select>
+      </div>
+
       {(error || success) && (
-        <p className={`text-sm font-medium rounded-lg px-3 py-2 border ${
-          error ? 'text-red-400 bg-red-950 border-red-800' : 'text-green-400 bg-green-950 border-green-800'
-        }`}>
+        <p className={`text-sm font-medium rounded-lg px-3 py-2 border ${error ? 'text-red-400 bg-red-950 border-red-800' : 'text-green-400 bg-green-950 border-green-800'}`}>
           {error ?? success}
         </p>
       )}
 
-      {selectedLeague.status === 'live' && (
+      {selectedLT?.status === 'live' && (
         <div className="flex justify-end">
-          <button
-            onClick={handleComplete}
-            disabled={isPending}
-            className="px-4 py-2 bg-yellow-800 hover:bg-yellow-700 disabled:opacity-50 text-yellow-100 text-sm font-medium rounded-lg transition-colors"
-          >
+          <button onClick={handleComplete} disabled={isPending} className="px-4 py-2 bg-yellow-800 hover:bg-yellow-700 disabled:opacity-50 text-yellow-100 text-sm font-medium rounded-lg transition-colors">
             End Tournament
           </button>
         </div>
@@ -551,146 +787,67 @@ function ManageView({
       {teams.map((team) => {
         const isAddingHere = addingToUserId === team.userId
         const isRenamingHere = renamingUserId === team.userId
-
         return (
           <div key={team.userId} className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-            {/* Header */}
             <div className="flex items-center justify-between gap-3">
               {isRenamingHere ? (
                 <div className="flex gap-2 flex-1">
-                  <input
-                    autoFocus
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
+                  <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleRename(team.userId); if (e.key === 'Escape') setRenamingUserId(null) }}
-                    maxLength={40}
-                    className={`${inputCls} flex-1`}
-                  />
-                  <button
-                    onClick={() => handleRename(team.userId)}
-                    disabled={isPending || !renameValue.trim()}
-                    className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-xs rounded-lg font-medium"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => setRenamingUserId(null)}
-                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded-lg"
-                  >
-                    Cancel
-                  </button>
+                    maxLength={40} className={`${inputCls} flex-1`} />
+                  <button onClick={() => handleRename(team.userId)} disabled={isPending || !renameValue.trim()} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white text-xs rounded-lg font-medium">Save</button>
+                  <button onClick={() => setRenamingUserId(null)} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded-lg">Cancel</button>
                 </div>
               ) : (
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <h3 className="font-semibold text-gray-100 truncate">{team.displayName}</h3>
                   <span className="text-xs text-gray-500 shrink-0">{team.picks.length}/4</span>
-                  <button
-                    onClick={() => { setRenamingUserId(team.userId); setRenameValue(team.displayName) }}
-                    className="text-xs text-gray-500 hover:text-blue-400 transition-colors shrink-0"
-                  >
-                    Rename
-                  </button>
+                  <button onClick={() => { setRenamingUserId(team.userId); setRenameValue(team.displayName) }} className="text-xs text-gray-500 hover:text-blue-400 transition-colors shrink-0">Rename</button>
                 </div>
               )}
-
-              {!isRenamingHere && (
-                <button
-                  onClick={() => handleDeleteTeam(team.userId, team.displayName)}
-                  disabled={isPending}
-                  className="text-xs text-red-700 hover:text-red-400 disabled:opacity-40 shrink-0 transition-colors"
-                >
-                  Delete Team
-                </button>
-              )}
+              <a href={`/dashboard/${selectedLTId}`} className="text-xs text-gray-600 hover:text-green-400 shrink-0 transition-colors">Leaderboard →</a>
             </div>
 
-            {/* Picks */}
             <div className="space-y-1.5">
-              {team.picks.length === 0 && (
-                <p className="text-xs text-gray-600 px-1">No players yet.</p>
-              )}
+              {team.picks.length === 0 && <p className="text-xs text-gray-600 px-1">No players yet.</p>}
               {team.picks.map((pick) => (
-                <div
-                  key={pick.pickId}
-                  className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2"
-                >
+                <div key={pick.pickId} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2">
                   <span className="text-sm text-gray-100">
                     <span className="text-gray-600 text-xs mr-2">R{pick.round}</span>
                     {pick.playerName}
                   </span>
-                  <button
-                    onClick={() => handleRemovePick(team.userId, pick.pickId, pick.playerName)}
-                    disabled={isPending}
-                    className="text-xs text-gray-600 hover:text-red-400 disabled:opacity-40 transition-colors"
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => handleRemovePick(team.userId, pick.pickId, pick.playerName)} disabled={isPending} className="text-xs text-gray-600 hover:text-red-400 disabled:opacity-40 transition-colors">✕</button>
                 </div>
               ))}
-              {/* Empty slots */}
               {Array.from({ length: Math.max(0, 4 - team.picks.length) }).map((_, i) => (
-                <div
-                  key={`empty-${i}`}
-                  className="flex items-center px-3 py-2 rounded-lg border border-dashed border-gray-700 text-xs text-gray-700"
-                >
+                <div key={`empty-${i}`} className="flex items-center px-3 py-2 rounded-lg border border-dashed border-gray-700 text-xs text-gray-700">
                   Round {team.picks.length + i + 1} — empty
                 </div>
               ))}
             </div>
 
-            {/* Add player toggle */}
             {team.picks.length < 4 && (
               <div>
                 {!isAddingHere ? (
-                  <button
-                    onClick={() => { setAddingToUserId(team.userId); setAddSearch('') }}
-                    className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                  >
-                    + Add player
-                  </button>
+                  <button onClick={() => { setAddingToUserId(team.userId); setAddSearch('') }} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">+ Add player</button>
                 ) : (
                   <div className="space-y-2 pt-1">
                     <div className="flex gap-2 items-center">
-                      <input
-                        autoFocus
-                        type="text"
-                        placeholder="Search players…"
-                        value={addSearch}
-                        onChange={(e) => setAddSearch(e.target.value)}
-                        className={`${inputCls} flex-1`}
-                      />
+                      <input autoFocus type="text" placeholder="Search players…" value={addSearch} onChange={(e) => setAddSearch(e.target.value)} className={`${inputCls} flex-1`} />
                       <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
-                        <input
-                          type="checkbox"
-                          checked={filterCutOnly}
-                          onChange={(e) => setFilterCutOnly(e.target.checked)}
-                          className="w-3.5 h-3.5 accent-green-500"
-                        />
+                        <input type="checkbox" checked={filterCutOnly} onChange={(e) => setFilterCutOnly(e.target.checked)} className="w-3.5 h-3.5 accent-green-500" />
                         <span className="text-xs text-gray-400">Cut only</span>
                       </label>
-                      <button
-                        onClick={() => { setAddingToUserId(null); setAddSearch('') }}
-                        className="text-xs text-gray-500 hover:text-gray-300 shrink-0"
-                      >
-                        Cancel
-                      </button>
+                      <button onClick={() => { setAddingToUserId(null); setAddSearch('') }} className="text-xs text-gray-500 hover:text-gray-300 shrink-0">Cancel</button>
                     </div>
                     <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {addCandidates.length === 0 && (
-                        <p className="text-xs text-gray-600 py-2 text-center">No available players</p>
-                      )}
+                      {addCandidates.length === 0 && <p className="text-xs text-gray-600 py-2 text-center">No available players</p>}
                       {addCandidates.map((p) => (
-                        <button
-                          key={p.espnPlayerId}
-                          onClick={() => handleAddPlayer(team.userId, p)}
-                          disabled={isPending}
-                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:border-blue-500 text-left text-sm text-gray-100 disabled:opacity-40 transition-colors"
-                        >
+                        <button key={p.espnPlayerId} onClick={() => handleAddPlayer(team.userId, p)} disabled={isPending}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:border-blue-500 text-left text-sm text-gray-100 disabled:opacity-40 transition-colors">
                           <span className="flex items-center gap-2">
                             {p.name}
-                            {!p.madeCut && (
-                              <span className="text-xs px-1 py-0.5 rounded bg-red-900 text-red-400">CUT</span>
-                            )}
+                            {!p.madeCut && <span className="text-xs px-1 py-0.5 rounded bg-red-900 text-red-400">CUT</span>}
                           </span>
                           <span className="text-xs text-gray-500">{p.position ?? ''}</span>
                         </button>

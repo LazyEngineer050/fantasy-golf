@@ -1,13 +1,8 @@
-/**
- * Core ESPN ingest logic — shared between /api/ingest (secret-protected)
- * and /api/refresh (public, called by the leaderboard client).
- */
-
 import { fetchEspnLeaderboard } from '@/lib/espn'
 import { recomputeTeamScores } from '@/lib/scoring'
 import { createSupabaseServiceClient } from '@/lib/supabase/server'
 
-export async function runIngest(tournamentId: string): Promise<{ ok: true; players: number; leagues: number; at: string } | { error: string }> {
+export async function runIngest(tournamentId: string): Promise<{ ok: true; players: number; leagueTournaments: number; at: string } | { error: string }> {
   const supabase = createSupabaseServiceClient()
 
   const { data: tournament, error: tErr } = await supabase
@@ -72,21 +67,22 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
     )
   }
 
-  const { data: liveLeagues } = await supabase
-    .from('leagues')
+  // Find live league_tournaments for this tournament
+  const { data: liveLTs } = await supabase
+    .from('league_tournaments')
     .select('id')
     .eq('tournament_id', tournamentId)
     .eq('status', 'live')
 
-  for (const league of liveLeagues ?? []) {
+  for (const lt of liveLTs ?? []) {
     try {
-      await recomputeTeamScores(supabase, league.id, tournamentId)
+      await recomputeTeamScores(supabase, lt.id, tournamentId)
     } catch (err) {
-      console.error(`[ingest] recomputeTeamScores failed for league ${league.id}:`, err)
+      console.error(`[ingest] recomputeTeamScores failed for league_tournament ${lt.id}:`, err)
     }
   }
 
-  // Auto-complete: if every active player has finished, mark leagues completed
+  // Auto-complete: if every active player finished, mark league_tournaments completed
   const { data: activePlayers } = await supabase
     .from('tournament_players')
     .select('player_id')
@@ -106,15 +102,15 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
       activeScores.length > 0 &&
       activeScores.every((s) => s.thru === 'F')
 
-    if (allFinished && (liveLeagues?.length ?? 0) > 0) {
+    if (allFinished && (liveLTs?.length ?? 0) > 0) {
       await supabase
-        .from('leagues')
+        .from('league_tournaments')
         .update({ status: 'completed' })
         .eq('tournament_id', tournamentId)
         .eq('status', 'live')
-      console.log(`[ingest] Tournament ${tournamentId} complete — leagues marked completed`)
+      console.log(`[ingest] Tournament ${tournamentId} complete — league_tournaments marked completed`)
     }
   }
 
-  return { ok: true, players: espnPlayers.length, leagues: liveLeagues?.length ?? 0, at: now }
+  return { ok: true, players: espnPlayers.length, leagueTournaments: liveLTs?.length ?? 0, at: now }
 }

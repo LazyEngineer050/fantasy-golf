@@ -12,269 +12,317 @@ export interface CutPlayer {
   thru: string | null
 }
 
-export interface TeamInput {
-  name: string
-  players: CutPlayer[]
+// ─── League management ────────────────────────────────────────────────────────
+
+export async function createLeague(formData: FormData) {
+  const name = (formData.get('name') as string).trim()
+  if (!name) return { error: 'League name is required' }
+
+  const supabase = createSupabaseServiceClient()
+  const { error } = await supabase.from('leagues').insert({ name })
+  if (error) return { error: error.message }
+
+  revalidatePath('/commissioner')
+  return { ok: true }
 }
 
+// ─── League season + member management ───────────────────────────────────────
+
+/**
+ * Ensures a league_season exists for the given league + season.
+ * If it doesn't exist, creates it and copies members from the most recent
+ * prior league_season for that league (if any).
+ */
+export async function ensureLeagueSeason(leagueId: string, seasonId: string): Promise<{ id: string } | { error: string }> {
+  const supabase = createSupabaseServiceClient()
+
+  // Check if already exists
+  const { data: existing } = await supabase
+    .from('league_seasons')
+    .select('id')
+    .eq('league_id', leagueId)
+    .eq('season_id', seasonId)
+    .maybeSingle()
+
+  if (existing) return { id: existing.id }
+
+  // Create new league_season
+  const { data: created, error: createErr } = await supabase
+    .from('league_seasons')
+    .insert({ league_id: leagueId, season_id: seasonId })
+    .select('id')
+    .single()
+
+  if (createErr || !created) return { error: createErr?.message ?? 'Failed to create league season' }
+
+  // Copy members from most recent prior league_season for this league
+  const { data: priorLS } = await supabase
+    .from('league_seasons')
+    .select('id')
+    .eq('league_id', leagueId)
+    .neq('id', created.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (priorLS) {
+    const { data: priorMembers } = await supabase
+      .from('league_season_members')
+      .select('user_id, draft_position')
+      .eq('league_season_id', priorLS.id)
+
+    if (priorMembers && priorMembers.length > 0) {
+      await supabase.from('league_season_members').insert(
+        priorMembers.map((m) => ({
+          league_season_id: created.id,
+          user_id: m.user_id,
+          draft_position: m.draft_position,
+        }))
+      )
+    }
+  }
+
+  revalidatePath('/commissioner')
+  return { id: created.id }
+}
+
+export async function addLeagueSeasonMember(formData: FormData) {
+  const leagueSeasonId = formData.get('leagueSeasonId') as string
+  const userId = formData.get('userId') as string
+  const draftPosition = parseInt(formData.get('draftPosition') as string, 10)
+
+  if (!leagueSeasonId || !userId || isNaN(draftPosition)) return { error: 'All fields required' }
+
+  const supabase = createSupabaseServiceClient()
+  const { error } = await supabase
+    .from('league_season_members')
+    .insert({ league_season_id: leagueSeasonId, user_id: userId, draft_position: draftPosition })
+
+  if (error) return { error: error.message }
+  revalidatePath('/commissioner')
+  return { ok: true }
+}
+
+export async function removeLeagueSeasonMember(leagueSeasonId: string, userId: string) {
+  const supabase = createSupabaseServiceClient()
+  const { error } = await supabase
+    .from('league_season_members')
+    .delete()
+    .eq('league_season_id', leagueSeasonId)
+    .eq('user_id', userId)
+
+  if (error) return { error: error.message }
+  revalidatePath('/commissioner')
+  return { ok: true }
+}
+
+export async function createUser(displayName: string): Promise<{ id: string } | { error: string }> {
+  const supabase = createSupabaseServiceClient()
+  const { data, error } = await supabase
+    .from('users')
+    .insert({ display_name: displayName.trim() })
+    .select('id')
+    .single()
+
+  if (error || !data) return { error: error?.message ?? 'Failed to create user' }
+  return { id: data.id }
+}
+
+// ─── Draft ────────────────────────────────────────────────────────────────────
+
+/**
+ * Save a completed offline draft.
+ * picks: { userId, players: CutPlayer[] }[]
+ * Creates a league_tournament (if needed) and inserts all picks.
+ */
 export async function saveDraft(
-  leagueId: string,
+  leagueSeasonId: string,
   tournamentId: string,
-  teams: TeamInput[]
+  picks: { userId: string; players: CutPlayer[] }[]
 ) {
-  if (!leagueId || !tournamentId) return { error: 'League and tournament are required' }
-  if (teams.length === 0) return { error: 'Add at least one team' }
-  if (teams.some((t) => !t.name.trim())) return { error: 'All teams need a name' }
-  if (teams.some((t) => t.players.length === 0)) return { error: 'All teams need at least one player' }
-  if (teams.some((t) => t.players.length > 4)) return { error: 'Max 4 players per team' }
+  if (!leagueSeasonId || !tournamentId) return { error: 'League season and tournament are required' }
+  if (picks.length === 0) return { error: 'No picks provided' }
+  if (picks.some((p) => p.players.length === 0)) return { error: 'All members need at least one player' }
 
   const supabase = createSupabaseServiceClient()
 
-  // Determine starting pick number (in case league already has some picks)
-  const { data: existingPicks } = await supabase
-    .from('picks')
-    .select('pick_number')
-    .eq('league_id', leagueId)
-    .order('pick_number', { ascending: false })
-    .limit(1)
+  // Create or reuse league_tournament
+  const { data: existingLT } = await supabase
+    .from('league_tournaments')
+    .select('id')
+    .eq('league_season_id', leagueSeasonId)
+    .eq('tournament_id', tournamentId)
+    .maybeSingle()
 
-  let globalPickNumber = existingPicks && existingPicks.length > 0
-    ? (existingPicks[0].pick_number as number) + 1
-    : 1
+  let leagueTournamentId: string
 
-  // Determine starting draft position
-  const { data: existingMembers } = await supabase
-    .from('league_members')
-    .select('draft_position')
-    .eq('league_id', leagueId)
-    .order('draft_position', { ascending: false })
-    .limit(1)
+  if (existingLT) {
+    leagueTournamentId = existingLT.id
+    // Clear existing picks so we can re-save
+    await supabase.from('picks').delete().eq('league_tournament_id', leagueTournamentId)
+    await supabase.from('team_scores').delete().eq('league_tournament_id', leagueTournamentId)
+  } else {
+    const { data: created, error: ltErr } = await supabase
+      .from('league_tournaments')
+      .insert({ league_season_id: leagueSeasonId, tournament_id: tournamentId, status: 'drafting' })
+      .select('id')
+      .single()
 
-  let nextPosition = existingMembers && existingMembers.length > 0
-    ? (existingMembers[0].draft_position as number) + 1
-    : 1
+    if (ltErr || !created) return { error: ltErr?.message ?? 'Failed to create league tournament' }
+    leagueTournamentId = created.id
+  }
 
-  for (const team of teams) {
-    // 1. Upsert each player into the global players table & tournament_players
-    const playerDbIds: string[] = []
+  let globalPickNumber = 1
 
-    for (const player of team.players) {
+  for (const { userId, players } of picks) {
+    for (let i = 0; i < players.length; i++) {
+      const player = players[i]
+
       // Find or create player record
-      const { data: existing } = await supabase
+      const { data: existingPlayer } = await supabase
         .from('players')
         .select('id')
         .eq('espn_player_id', player.espnPlayerId)
         .maybeSingle()
 
       let playerId: string
-      if (existing) {
-        playerId = existing.id
+      if (existingPlayer) {
+        playerId = existingPlayer.id
       } else {
         const { data: inserted, error } = await supabase
           .from('players')
           .insert({ name: player.name, espn_player_id: player.espnPlayerId })
           .select('id')
           .single()
-        if (error || !inserted) return { error: `Failed to save player ${player.name}: ${error?.message}` }
+        if (error || !inserted) return { error: `Failed to save player ${player.name}` }
         playerId = inserted.id
       }
 
-      // Upsert into tournament_players with correct cut status
+      // Upsert tournament_players
       await supabase.from('tournament_players').upsert(
         { tournament_id: tournamentId, player_id: playerId, status: player.madeCut ? 'active' : 'cut' },
         { onConflict: 'tournament_id,player_id' }
       )
 
-      playerDbIds.push(playerId)
-    }
-
-    // 2. Create a user for the team
-    const { data: user, error: userErr } = await supabase
-      .from('users')
-      .insert({ display_name: team.name.trim() })
-      .select('id')
-      .single()
-
-    if (userErr || !user) return { error: `Failed to create team "${team.name}": ${userErr?.message}` }
-
-    // 3. Add to league as a member
-    const { error: memberErr } = await supabase
-      .from('league_members')
-      .insert({ league_id: leagueId, user_id: user.id, draft_position: nextPosition++ })
-
-    if (memberErr) return { error: `Failed to add "${team.name}" to league: ${memberErr.message}` }
-
-    // 4. Create picks — one per player, round 1–4
-    for (let i = 0; i < playerDbIds.length; i++) {
+      // Insert pick
       const { error: pickErr } = await supabase.from('picks').insert({
-        league_id: leagueId,
+        league_tournament_id: leagueTournamentId,
         pick_number: globalPickNumber++,
         round: i + 1,
-        user_id: user.id,
-        player_id: playerDbIds[i],
+        user_id: userId,
+        player_id: playerId,
       })
       if (pickErr) return { error: `Failed to record pick: ${pickErr.message}` }
     }
   }
 
-  // Mark league as live and draft complete
-  await supabase.from('leagues').update({ status: 'live' }).eq('id', leagueId)
-  await supabase.from('draft_state').upsert(
-    { league_id: leagueId, round: 5, pick_number: globalPickNumber, on_clock_user_id: null, direction: 1 },
-    { onConflict: 'league_id' }
-  )
+  // Mark live
+  await supabase
+    .from('league_tournaments')
+    .update({ status: 'live' })
+    .eq('id', leagueTournamentId)
 
   revalidatePath('/')
   revalidatePath('/commissioner')
-  revalidatePath(`/dashboard/${leagueId}`)
+  revalidatePath(`/dashboard/${leagueTournamentId}`)
 
+  return { ok: true, leagueTournamentId }
+}
+
+// ─── Pick management ──────────────────────────────────────────────────────────
+
+export async function removePlayerPick(leagueTournamentId: string, pickId: string) {
+  const supabase = createSupabaseServiceClient()
+  const { error } = await supabase.from('picks').delete().eq('id', pickId)
+  if (error) return { error: error.message }
+  revalidatePath('/commissioner')
+  revalidatePath(`/dashboard/${leagueTournamentId}`)
   return { ok: true }
 }
 
-// ─── Helpers shared by management actions ────────────────────────────────────
+export async function addPlayerToTeam(
+  leagueTournamentId: string,
+  tournamentId: string,
+  userId: string,
+  player: CutPlayer
+) {
+  const supabase = createSupabaseServiceClient()
 
-async function upsertPlayer(supabase: ReturnType<typeof createSupabaseServiceClient>, player: CutPlayer, tournamentId: string): Promise<{ id: string } | { error: string }> {
-  const { data: existing } = await supabase
+  const { data: existingPlayer } = await supabase
     .from('players')
     .select('id')
     .eq('espn_player_id', player.espnPlayerId)
     .maybeSingle()
 
-  if (existing) {
-    await supabase.from('tournament_players').upsert(
-      { tournament_id: tournamentId, player_id: existing.id, status: player.madeCut ? 'active' : 'cut' },
-      { onConflict: 'tournament_id,player_id' }
-    )
-    return { id: existing.id }
+  let playerId: string
+  if (existingPlayer) {
+    playerId = existingPlayer.id
+  } else {
+    const { data: inserted, error } = await supabase
+      .from('players')
+      .insert({ name: player.name, espn_player_id: player.espnPlayerId })
+      .select('id')
+      .single()
+    if (error || !inserted) return { error: `Failed to save player` }
+    playerId = inserted.id
   }
 
-  const { data: inserted, error } = await supabase
-    .from('players')
-    .insert({ name: player.name, espn_player_id: player.espnPlayerId })
-    .select('id')
-    .single()
-
-  if (error || !inserted) return { error: `Failed to save player: ${error?.message}` }
-
   await supabase.from('tournament_players').upsert(
-    { tournament_id: tournamentId, player_id: inserted.id, status: player.madeCut ? 'active' : 'cut' },
+    { tournament_id: tournamentId, player_id: playerId, status: player.madeCut ? 'active' : 'cut' },
     { onConflict: 'tournament_id,player_id' }
   )
-  return { id: inserted.id }
-}
 
-// ─── Team management ─────────────────────────────────────────────────────────
-
-export async function deleteTeam(leagueId: string, userId: string) {
-  const supabase = createSupabaseServiceClient()
-
-  const { error: pickErr } = await supabase
-    .from('picks')
-    .delete()
-    .eq('league_id', leagueId)
-    .eq('user_id', userId)
-
-  if (pickErr) return { error: pickErr.message }
-
-  const { error: memberErr } = await supabase
-    .from('league_members')
-    .delete()
-    .eq('league_id', leagueId)
-    .eq('user_id', userId)
-
-  if (memberErr) return { error: memberErr.message }
-
-  revalidatePath('/commissioner')
-  revalidatePath(`/dashboard/${leagueId}`)
-  revalidatePath('/')
-  return { ok: true }
-}
-
-export async function removePlayerPick(leagueId: string, pickId: string) {
-  const supabase = createSupabaseServiceClient()
-
-  const { error } = await supabase.from('picks').delete().eq('id', pickId)
-
-  if (error) return { error: error.message }
-
-  revalidatePath('/commissioner')
-  revalidatePath(`/dashboard/${leagueId}`)
-  return { ok: true }
-}
-
-export async function addPlayerToTeam(
-  leagueId: string,
-  userId: string,
-  tournamentId: string,
-  player: CutPlayer
-) {
-  const supabase = createSupabaseServiceClient()
-
-  const result = await upsertPlayer(supabase, player, tournamentId)
-  if ('error' in result) return result
-
-  // Next pick_number for this league
   const { data: maxPick } = await supabase
     .from('picks')
     .select('pick_number')
-    .eq('league_id', leagueId)
+    .eq('league_tournament_id', leagueTournamentId)
     .order('pick_number', { ascending: false })
     .limit(1)
 
   const nextPickNumber = maxPick && maxPick.length > 0 ? (maxPick[0].pick_number as number) + 1 : 1
 
-  // Next round for this user (how many picks they already have + 1)
   const { data: userPicks } = await supabase
     .from('picks')
     .select('round')
-    .eq('league_id', leagueId)
+    .eq('league_tournament_id', leagueTournamentId)
     .eq('user_id', userId)
 
   const nextRound = (userPicks?.length ?? 0) + 1
 
   const { error } = await supabase.from('picks').insert({
-    league_id: leagueId,
+    league_tournament_id: leagueTournamentId,
     pick_number: nextPickNumber,
     round: nextRound,
     user_id: userId,
-    player_id: result.id,
+    player_id: playerId,
   })
 
   if (error) return { error: error.message }
-
   revalidatePath('/commissioner')
-  revalidatePath(`/dashboard/${leagueId}`)
+  revalidatePath(`/dashboard/${leagueTournamentId}`)
   return { ok: true }
 }
 
-export async function renameTeam(leagueId: string, userId: string, newName: string) {
+export async function renameTeam(userId: string, newName: string) {
   const supabase = createSupabaseServiceClient()
   const trimmed = newName.trim().slice(0, 40)
   if (!trimmed) return { error: 'Name required' }
-
-  const { error } = await supabase
-    .from('users')
-    .update({ display_name: trimmed })
-    .eq('id', userId)
-
+  const { error } = await supabase.from('users').update({ display_name: trimmed }).eq('id', userId)
   if (error) return { error: error.message }
-
   revalidatePath('/commissioner')
-  revalidatePath(`/dashboard/${leagueId}`)
   return { ok: true }
 }
 
-export async function completeLeague(leagueId: string) {
+export async function completeLeagueTournament(leagueTournamentId: string) {
   const supabase = createSupabaseServiceClient()
   const { error } = await supabase
-    .from('leagues')
+    .from('league_tournaments')
     .update({ status: 'completed' })
-    .eq('id', leagueId)
+    .eq('id', leagueTournamentId)
 
   if (error) return { error: error.message }
   revalidatePath('/commissioner')
-  revalidatePath(`/dashboard/${leagueId}`)
+  revalidatePath(`/dashboard/${leagueTournamentId}`)
   revalidatePath('/')
   return { ok: true }
 }
-

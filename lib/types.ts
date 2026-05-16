@@ -8,6 +8,49 @@ export type Database = {
         Update: { display_name?: string }
         Relationships: []
       }
+      seasons: {
+        Row: { id: string; year: number; created_at: string }
+        Insert: { id?: string; year: number }
+        Update: { year?: number }
+        Relationships: []
+      }
+      leagues: {
+        Row: { id: string; name: string; created_at: string }
+        Insert: { id?: string; name: string }
+        Update: { name?: string }
+        Relationships: []
+      }
+      league_seasons: {
+        Row: { id: string; league_id: string; season_id: string; created_at: string }
+        Insert: { id?: string; league_id: string; season_id: string }
+        Update: Record<string, never>
+        Relationships: []
+      }
+      league_season_members: {
+        Row: { league_season_id: string; user_id: string; draft_position: number }
+        Insert: { league_season_id: string; user_id: string; draft_position: number }
+        Update: { draft_position?: number }
+        Relationships: []
+      }
+      league_tournaments: {
+        Row: {
+          id: string
+          league_season_id: string
+          tournament_id: string
+          status: 'drafting' | 'live' | 'completed'
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          league_season_id: string
+          tournament_id: string
+          status?: 'drafting' | 'live' | 'completed'
+        }
+        Update: {
+          status?: 'drafting' | 'live' | 'completed'
+        }
+        Relationships: []
+      }
       tournaments: {
         Row: {
           id: string
@@ -15,6 +58,7 @@ export type Database = {
           espn_event_id: string | null
           start_date: string
           end_date: string
+          season_id: string | null
         }
         Insert: {
           id?: string
@@ -22,39 +66,15 @@ export type Database = {
           espn_event_id?: string | null
           start_date: string
           end_date: string
+          season_id?: string | null
         }
         Update: {
           name?: string
           espn_event_id?: string | null
           start_date?: string
           end_date?: string
+          season_id?: string | null
         }
-        Relationships: []
-      }
-      leagues: {
-        Row: {
-          id: string
-          name: string
-          tournament_id: string
-          status: 'drafting' | 'live' | 'completed'
-        }
-        Insert: {
-          id?: string
-          name: string
-          tournament_id: string
-          status?: 'drafting' | 'live' | 'completed'
-        }
-        Update: {
-          name?: string
-          tournament_id?: string
-          status?: 'drafting' | 'live' | 'completed'
-        }
-        Relationships: []
-      }
-      league_members: {
-        Row: { league_id: string; user_id: string; draft_position: number }
-        Insert: { league_id: string; user_id: string; draft_position: number }
-        Update: { draft_position?: number }
         Relationships: []
       }
       players: {
@@ -64,22 +84,14 @@ export type Database = {
         Relationships: []
       }
       tournament_players: {
-        Row: {
-          tournament_id: string
-          player_id: string
-          status: 'active' | 'cut' | 'wd'
-        }
-        Insert: {
-          tournament_id: string
-          player_id: string
-          status?: 'active' | 'cut' | 'wd'
-        }
+        Row: { tournament_id: string; player_id: string; status: 'active' | 'cut' | 'wd' }
+        Insert: { tournament_id: string; player_id: string; status?: 'active' | 'cut' | 'wd' }
         Update: { status?: 'active' | 'cut' | 'wd' }
         Relationships: []
       }
       draft_state: {
         Row: {
-          league_id: string
+          league_tournament_id: string
           round: number
           pick_number: number
           on_clock_user_id: string | null
@@ -87,7 +99,7 @@ export type Database = {
           started_at: string
         }
         Insert: {
-          league_id: string
+          league_tournament_id: string
           round?: number
           pick_number?: number
           on_clock_user_id?: string | null
@@ -106,7 +118,7 @@ export type Database = {
       picks: {
         Row: {
           id: string
-          league_id: string
+          league_tournament_id: string
           pick_number: number
           round: number
           user_id: string
@@ -115,7 +127,7 @@ export type Database = {
         }
         Insert: {
           id?: string
-          league_id: string
+          league_tournament_id: string
           pick_number: number
           round: number
           user_id: string
@@ -170,14 +182,14 @@ export type Database = {
       }
       team_scores: {
         Row: {
-          league_id: string
+          league_tournament_id: string
           user_id: string
           total_strokes: number | null
           rank: number | null
           updated_at: string
         }
         Insert: {
-          league_id: string
+          league_tournament_id: string
           user_id: string
           total_strokes?: number | null
           rank?: number | null
@@ -202,21 +214,29 @@ export type Database = {
 }
 
 // Application-level types
-export interface LeagueWithTournament {
-  id: string
-  name: string
-  status: 'drafting' | 'live' | 'completed'
-  tournament: {
-    id: string
-    name: string
-    espn_event_id: string | null
-    start_date: string
-    end_date: string
-  }
+export interface TeamStanding {
+  user_id: string
+  display_name: string
+  total_strokes: number | null
+  rank: number | null
+  picks: Array<{
+    player_id: string
+    player_name: string
+    draft_round: number
+    total_strokes: number | null
+    today_strokes: number | null
+    thru: string | null
+    position: string | null
+    tee_time: string | null
+    r1_strokes: number | null
+    r2_strokes: number | null
+    r3_strokes: number | null
+    r4_strokes: number | null
+  }>
 }
 
 export interface DraftStateWithMembers {
-  league_id: string
+  league_tournament_id: string
   round: number
   pick_number: number
   on_clock_user_id: string | null
@@ -241,25 +261,4 @@ export interface AvailablePlayer {
   total_strokes: number | null
   position: string | null
   thru: string | null
-}
-
-export interface TeamStanding {
-  user_id: string
-  display_name: string
-  total_strokes: number | null
-  rank: number | null
-  picks: Array<{
-    player_id: string
-    player_name: string
-    draft_round: number
-    total_strokes: number | null
-    today_strokes: number | null
-    thru: string | null
-    position: string | null
-    tee_time: string | null
-    r1_strokes: number | null
-    r2_strokes: number | null
-    r3_strokes: number | null
-    r4_strokes: number | null
-  }>
 }
