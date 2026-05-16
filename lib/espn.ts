@@ -80,14 +80,20 @@ function extractTeeTime(linescore: RawLinescore | undefined): string | null {
   return `${hours}:${minutes} ${period} ET`
 }
 
+// Returns true if a player has confirmed they made the cut:
+// either they have R3/R4 score data, or they have an R3 tee time scheduled.
+function hasMadeCut(c: RawCompetitor): boolean {
+  const r3ls = roundLinescore(c.linescores ?? [], 3)
+  const r4ls = roundLinescore(c.linescores ?? [], 4)
+  if ((r3ls?.value ?? 0) > 0 || (r4ls?.value ?? 0) > 0) return true
+  // R3 tee time present → player is scheduled for R3 (made the cut)
+  return extractTeeTime(r3ls) !== null
+}
+
 function determineCutLine(competitors: RawCompetitor[]): number {
-  // Derive actual cut line from who made it to round 3/4:
-  // worst 2-round total among players still in the field = the real cut line.
-  const madeR3 = competitors.filter((c) => {
-    const r3 = roundLinescore(c.linescores ?? [], 3)?.value ?? 0
-    const r4 = roundLinescore(c.linescores ?? [], 4)?.value ?? 0
-    return r3 > 0 || r4 > 0
-  })
+  // Derive actual cut line from who made it to R3:
+  // worst 2-round total among players in the R3 field = the real cut line.
+  const madeR3 = competitors.filter(hasMadeCut)
 
   if (madeR3.length > 0) {
     const totals = madeR3.map((c) => {
@@ -116,8 +122,6 @@ function determineCutLine(competitors: RawCompetitor[]): number {
 function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd' {
   const r1 = roundLinescore(c.linescores ?? [], 1)?.value ?? 0
   const r2 = roundLinescore(c.linescores ?? [], 2)?.value ?? 0
-  const r3 = roundLinescore(c.linescores ?? [], 3)?.value ?? 0
-  const r4 = roundLinescore(c.linescores ?? [], 4)?.value ?? 0
 
   // No round scores at all → likely withdrew before the tournament
   if (r1 === 0 && r2 === 0) return 'wd'
@@ -125,8 +129,8 @@ function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd'
   // Has r1 but no r2 → withdrew or incomplete (treat as wd)
   if (r1 > 0 && r2 === 0) return 'wd'
 
-  // Player has r3/r4 data → definitively made the cut
-  if (r3 > 0 || r4 > 0) return 'active'
+  // R3 tee time or R3/R4 scores → definitively made the cut
+  if (hasMadeCut(c)) return 'active'
 
   return r1 + r2 <= cutLine ? 'active' : 'cut'
 }
