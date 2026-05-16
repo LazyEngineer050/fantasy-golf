@@ -258,6 +258,81 @@ export async function saveDraft(
   return { ok: true, leagueTournamentId }
 }
 
+// ─── Live draft initialization ────────────────────────────────────────────────
+
+export async function initializeDraft(
+  leagueSeasonId: string,
+  tournamentId: string | null,
+  draftOrder: string[], // userId[] in snake order (position 0 = picks first)
+  espnEvent?: { eventId: string; name: string; startDate: string | null }
+): Promise<{ leagueTournamentId: string } | { error: string }> {
+  if (!leagueSeasonId) return { error: 'League season is required' }
+  if (draftOrder.length === 0) return { error: 'Draft order is empty' }
+
+  const supabase = createSupabaseServiceClient()
+
+  // Find or create tournament
+  if (!tournamentId && espnEvent) {
+    const { data: existing } = await supabase
+      .from('tournaments')
+      .select('id')
+      .eq('espn_event_id', espnEvent.eventId)
+      .maybeSingle()
+    if (existing) {
+      tournamentId = existing.id
+    } else {
+      const startDate = espnEvent.startDate ?? new Date().toISOString().slice(0, 10)
+      const endDate = new Date(new Date(startDate + 'T12:00:00Z').getTime() + 3 * 86400000).toISOString().slice(0, 10)
+      const year = new Date(startDate + 'T12:00:00Z').getFullYear()
+      const { data: season } = await supabase.from('seasons').select('id').eq('year', year).maybeSingle()
+      const { data: created, error: tErr } = await supabase
+        .from('tournaments')
+        .insert({ name: espnEvent.name, espn_event_id: espnEvent.eventId, start_date: startDate, end_date: endDate, season_id: season?.id ?? null })
+        .select('id').single()
+      if (tErr || !created) return { error: tErr?.message ?? 'Failed to create tournament' }
+      tournamentId = created.id
+    }
+  }
+  if (!tournamentId) return { error: 'No tournament selected' }
+
+  // Find or create league_tournament (status = drafting)
+  const { data: existingLT } = await supabase
+    .from('league_tournaments')
+    .select('id')
+    .eq('league_season_id', leagueSeasonId)
+    .eq('tournament_id', tournamentId)
+    .maybeSingle()
+
+  let leagueTournamentId: string
+  if (existingLT) {
+    leagueTournamentId = existingLT.id
+    await supabase.from('league_tournaments').update({ status: 'drafting' }).eq('id', leagueTournamentId)
+  } else {
+    const { data: created, error: ltErr } = await supabase
+      .from('league_tournaments')
+      .insert({ league_season_id: leagueSeasonId, tournament_id: tournamentId, status: 'drafting' })
+      .select('id').single()
+    if (ltErr || !created) return { error: ltErr?.message ?? 'Failed to create league tournament' }
+    leagueTournamentId = created.id
+  }
+
+  // Delete any existing draft state for this league_tournament
+  await supabase.from('draft_state').delete().eq('league_tournament_id', leagueTournamentId)
+
+  // Create fresh draft_state
+  const { error: dsErr } = await supabase.from('draft_state').insert({
+    league_tournament_id: leagueTournamentId,
+    round: 1,
+    pick_number: 1,
+    on_clock_user_id: draftOrder[0],
+    direction: 1,
+  })
+  if (dsErr) return { error: dsErr.message }
+
+  revalidatePath('/commissioner')
+  return { leagueTournamentId }
+}
+
 // ─── Pick management ──────────────────────────────────────────────────────────
 
 export async function removePlayerPick(leagueTournamentId: string, pickId: string) {

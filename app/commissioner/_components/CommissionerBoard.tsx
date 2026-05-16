@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import {
   ensureLeagueSeason,
+  initializeDraft,
   addLeagueSeasonMember,
   removeLeagueSeasonMember,
   createUser,
@@ -420,6 +421,7 @@ function DraftView({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedOk, setSavedOk] = useState(false)
   const [savedLTId, setSavedLTId] = useState<string | null>(null)
+  const [draftUrl, setDraftUrl] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   function randomizeDraftOrder() {
@@ -519,6 +521,20 @@ function DraftView({
     })
   }
 
+  function handleStartLiveDraft() {
+    const tId = espnMatchedTournament?.id ?? (espnEventId ? null : selectedTournamentId)
+    const espnEvent = !espnMatchedTournament && espnEventId && espnEventName
+      ? { eventId: espnEventId, name: espnEventName, startDate: espnEventDate }
+      : undefined
+    setSaveError(null)
+    setDraftUrl(null)
+    startTransition(async () => {
+      const res = await initializeDraft(leagueSeason.id, tId, draftOrder.map((m) => m.userId), espnEvent)
+      if ('error' in res) { setSaveError(res.error); return }
+      setDraftUrl(`/draft/${res.leagueTournamentId}`)
+    })
+  }
+
   if (availableTournaments.length === 0) {
     return (
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
@@ -573,6 +589,9 @@ function DraftView({
           <button onClick={handleSave} disabled={isPending} className="px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors">
             {isPending ? 'Saving…' : 'Save Draft'}
           </button>
+          <button onClick={handleStartLiveDraft} disabled={isPending} className="px-5 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors">
+            {isPending ? 'Starting…' : '🔴 Live Draft'}
+          </button>
         </div>
       </div>
 
@@ -582,6 +601,15 @@ function DraftView({
           ✓ Draft saved! League is now live.{' '}
           {savedLTId && <a href={`/dashboard/${savedLTId}`} className="underline">View leaderboard →</a>}
         </p>
+      )}
+      {draftUrl && (
+        <div className="text-blue-300 text-sm font-medium bg-blue-950 border border-blue-800 rounded-lg px-4 py-3 space-y-2">
+          <p>🔴 Live draft started! Share this link with your league:</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="bg-blue-900/50 px-2 py-1 rounded text-blue-200 text-xs break-all">{typeof window !== 'undefined' ? window.location.origin : ''}{draftUrl}</code>
+            <a href={draftUrl} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-200 underline text-xs shrink-0">Open →</a>
+          </div>
+        </div>
       )}
 
       {/* ── Pick Order view ── */}

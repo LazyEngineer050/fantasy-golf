@@ -89,36 +89,26 @@ export default async function DraftPage({ params }: PageProps) {
     player_name: pickPlayerMap.get(p.player_id) ?? 'Unknown',
   }))
 
-  // Load available players with scores
-  const draftedPlayerIds = picks.map((p) => p.player_id)
+  // Available players = those with scores for this tournament who haven't been picked
+  const draftedPlayerIds = new Set(picks.map((p) => p.player_id))
 
   const { data: scoresRaw } = await supabase
     .from('player_scores')
-    .select('player_id, total_strokes, position, thru')
+    .select('player_id, total_strokes, position, thru, players(id, name, espn_player_id)')
     .eq('tournament_id', tournamentId)
 
-  const scoresMap = new Map(
-    (scoresRaw ?? []).map((s: any) => [s.player_id, s])
-  )
-
-  const { data: allPlayersRaw } = await supabase
-    .from('players')
-    .select('id, name, espn_player_id')
-
-  const availablePlayers: AvailablePlayer[] = ((allPlayersRaw ?? []) as any[])
-    .filter((p) => !draftedPlayerIds.includes(p.id))
-    .map((p) => {
-      const score = scoresMap.get(p.id)
-      return {
-        id: p.id,
-        name: p.name,
-        espn_player_id: p.espn_player_id ?? null,
-        status: 'active',
-        total_strokes: score?.total_strokes ?? null,
-        position: score?.position ?? null,
-        thru: score?.thru ?? null,
-      }
-    })
+  const availablePlayers: AvailablePlayer[] = ((scoresRaw ?? []) as any[])
+    .filter((s) => s.players && !draftedPlayerIds.has(s.player_id))
+    .sort((a, b) => (a.total_strokes ?? 999) - (b.total_strokes ?? 999))
+    .map((s) => ({
+      id: s.player_id,
+      name: s.players.name,
+      espn_player_id: s.players.espn_player_id ?? null,
+      status: 'active' as const,
+      total_strokes: s.total_strokes,
+      position: s.position,
+      thru: s.thru,
+    }))
 
   const myPicks = picks.filter((p) => p.user_id === userId)
 

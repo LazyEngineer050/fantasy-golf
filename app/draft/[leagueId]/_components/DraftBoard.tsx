@@ -22,6 +22,16 @@ interface Props {
   members: Array<{ user_id: string; draft_position: number; display_name: string }>
 }
 
+// Set user_id cookie client-side so the page re-renders with the right identity
+async function claimIdentity(userId: string) {
+  await fetch('/api/identify', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  })
+  window.location.reload()
+}
+
 export default function DraftBoard({
   leagueId,
   leagueName,
@@ -51,7 +61,7 @@ export default function DraftBoard({
       .channel(`draft:${leagueId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'draft_state', filter: `league_id=eq.${leagueId}` },
+        { event: '*', schema: 'public', table: 'draft_state', filter: `league_tournament_id=eq.${leagueId}` },
         (payload) => {
           if (payload.new) {
             setDraftState((prev) =>
@@ -62,7 +72,7 @@ export default function DraftBoard({
       )
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'picks', filter: `league_id=eq.${leagueId}` },
+        { event: 'INSERT', schema: 'public', table: 'picks', filter: `league_tournament_id=eq.${leagueId}` },
         (payload) => {
           const newPick = payload.new as any
           setPicks((prev) => [...prev, newPick])
@@ -93,6 +103,34 @@ export default function DraftBoard({
 
   const onClockMember = members.find((m) => m.user_id === draftState?.on_clock_user_id)
   const isDraftComplete = (draftState?.round ?? 0) > 4 || leagueStatus !== 'drafting'
+
+  const isIdentified = currentUserId && members.some((m) => m.user_id === currentUserId)
+
+  // Join screen — show when not yet identified as a league member
+  if (!isIdentified) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-100 flex items-center justify-center p-6">
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 w-full max-w-sm space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-green-400">{leagueName}</h1>
+            <p className="text-gray-400 text-sm mt-1">{tournamentName} · Live Draft</p>
+          </div>
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-gray-300">Who are you?</p>
+            {members.map((m) => (
+              <button
+                key={m.user_id}
+                onClick={() => claimIdentity(m.user_id)}
+                className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-green-900/40 border border-gray-700 hover:border-green-600 rounded-xl text-gray-100 font-medium transition-colors"
+              >
+                {m.display_name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
