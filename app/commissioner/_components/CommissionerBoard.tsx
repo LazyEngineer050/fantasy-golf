@@ -32,6 +32,8 @@ interface Props {
   users: UserRow[]
   cutPlayers: CutPlayer[]
   existingTeamsByLT: Record<string, ExistingTeamPicks[]>
+  espnEventId: string | null
+  espnEventName: string | null
 }
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500'
@@ -46,6 +48,8 @@ export default function CommissionerBoard({
   users,
   cutPlayers,
   existingTeamsByLT,
+  espnEventId,
+  espnEventName,
 }: Props) {
   const [selectedLeagueId, setSelectedLeagueId] = useState(initialLeagues[0]?.id ?? '')
   const [view, setView] = useState<'members' | 'draft' | 'manage'>('members')
@@ -70,17 +74,10 @@ export default function CommissionerBoard({
     leagueSeasons.some((ls) => ls.id === lt.leagueSeasonId && ls.leagueId === selectedLeagueId)
   )
 
-  // Tournaments not yet drafted for selected league in current season
-  const draftedTournamentIds = new Set(
-    leagueTournaments
-      .filter((lt) => lt.leagueSeasonId === currentLS?.id)
-      .map((lt) => lt.tournamentId)
-  )
-  const availableTournaments = currentSeason
-    ? tournaments.filter(
-        (t) => t.seasonId === currentSeason.id && !draftedTournamentIds.has(t.id)
-      )
-    : []
+  // All tournament IDs already drafted for the selected league (any season)
+  const draftedTournamentIds = new Set(myLeagueTournaments.map((lt) => lt.tournamentId))
+  // Show all undrafted tournaments (not season-filtered so new tournaments always appear)
+  const availableTournaments = tournaments.filter((t) => !draftedTournamentIds.has(t.id))
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -142,6 +139,8 @@ export default function CommissionerBoard({
           availableTournaments={availableTournaments}
           currentSeason={currentSeason}
           cutPlayers={cutPlayers}
+          espnEventId={espnEventId}
+          espnEventName={espnEventName}
         />
       )}
 
@@ -385,13 +384,21 @@ function DraftView({
   availableTournaments,
   currentSeason,
   cutPlayers,
+  espnEventId,
+  espnEventName,
 }: {
   leagueSeason: LeagueSeasonRow
   availableTournaments: TournamentRow[]
   currentSeason: SeasonRow | null
   cutPlayers: CutPlayer[]
+  espnEventId: string | null
+  espnEventName: string | null
 }) {
-  const [selectedTournamentId, setSelectedTournamentId] = useState(availableTournaments[0]?.id ?? '')
+  // Auto-select the tournament matching the current ESPN event, falling back to first available
+  const autoMatch = espnEventId
+    ? availableTournaments.find((t) => t.espnEventId === espnEventId) ?? availableTournaments[0]
+    : availableTournaments[0]
+  const [selectedTournamentId, setSelectedTournamentId] = useState(autoMatch?.id ?? '')
   const [search, setSearch] = useState('')
   const [filterCutOnly, setFilterCutOnly] = useState(false)
   const [selectedPlayer, setSelectedPlayer] = useState<CutPlayer | null>(null)
@@ -450,7 +457,7 @@ function DraftView({
   if (availableTournaments.length === 0) {
     return (
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
-        <p className="text-gray-400">All {currentSeason?.year} tournaments have been drafted.</p>
+        <p className="text-gray-400">All tournaments have been drafted.</p>
         <p className="text-xs text-gray-600 mt-2">Add more tournaments in the Admin page, then come back.</p>
       </div>
     )
@@ -469,7 +476,15 @@ function DraftView({
       {/* Tournament selector + save bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
         <div className="space-y-1 flex-1 min-w-48">
-          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
+            {espnEventId && autoMatch?.espnEventId === espnEventId && (
+              <span className="text-xs bg-green-900 text-green-400 px-2 py-0.5 rounded-full font-medium">● Live on ESPN</span>
+            )}
+            {espnEventId && !autoMatch && espnEventName && (
+              <span className="text-xs bg-yellow-900 text-yellow-400 px-2 py-0.5 rounded-full font-medium">ESPN: {espnEventName} — not in DB</span>
+            )}
+          </div>
           <select
             value={selectedTournamentId}
             onChange={(e) => setSelectedTournamentId(e.target.value)}

@@ -1,5 +1,5 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { fetchCurrentEspnEventId, fetchEspnLeaderboard } from '@/lib/espn'
+import { fetchCurrentEspnEvent, fetchEspnLeaderboard } from '@/lib/espn'
 import CommissionerBoard from './_components/CommissionerBoard'
 import type { CutPlayer } from '@/app/actions/commissioner'
 
@@ -33,6 +33,7 @@ export interface TournamentRow {
   name: string
   startDate: string
   seasonId: string | null
+  espnEventId: string | null
 }
 
 export interface UserRow {
@@ -81,14 +82,14 @@ export default async function CommissionerPage() {
     supabase.from('league_seasons').select('id, league_id, season_id'),
     supabase.from('league_season_members').select('league_season_id, user_id, draft_position, users(display_name)').order('draft_position'),
     supabase.from('league_tournaments').select('id, league_season_id, tournament_id, status, tournaments(name, start_date)').order('created_at', { ascending: false }),
-    supabase.from('tournaments').select('id, name, start_date, season_id').order('start_date', { ascending: false }),
+    supabase.from('tournaments').select('id, name, start_date, season_id, espn_event_id').order('start_date', { ascending: false }),
     supabase.from('users').select('id, display_name').order('display_name'),
   ])
 
   type RawLS = { id: string; league_id: string; season_id: string }
   type RawLSM = { league_season_id: string; user_id: string; draft_position: number; users: { display_name: string } | null }
   type RawLT = { id: string; league_season_id: string; tournament_id: string; status: string; tournaments: { name: string; start_date: string } | null }
-  type RawTournament = { id: string; name: string; start_date: string; season_id: string | null }
+  type RawTournament = { id: string; name: string; start_date: string; season_id: string | null; espn_event_id: string | null }
   type RawUser = { id: string; display_name: string }
 
   const leagues: LeagueRow[] = ((leaguesResult.data ?? []) as unknown as { id: string; name: string }[])
@@ -129,6 +130,7 @@ export default async function CommissionerPage() {
     name: t.name,
     startDate: t.start_date,
     seasonId: t.season_id,
+    espnEventId: t.espn_event_id,
   }))
 
   // Load picks for all league_tournaments (for Manage view)
@@ -175,10 +177,14 @@ export default async function CommissionerPage() {
   // ESPN player pool
   let cutPlayers: CutPlayer[] = []
   let espnSource = false
+  let espnEventId: string | null = null
+  let espnEventName: string | null = null
   try {
-    const eventId = await fetchCurrentEspnEventId()
-    if (eventId) {
-      const espnPlayers = await fetchEspnLeaderboard(eventId)
+    const espnEvent = await fetchCurrentEspnEvent()
+    if (espnEvent) {
+      espnEventId = espnEvent.eventId
+      espnEventName = espnEvent.eventName
+      const espnPlayers = await fetchEspnLeaderboard(espnEvent.eventId)
       const nonWd = espnPlayers.filter((p) => p.status !== 'wd')
       if (nonWd.length > 0) {
         cutPlayers = nonWd.map((p) => ({
@@ -206,7 +212,7 @@ export default async function CommissionerPage() {
         </div>
         <div className="flex items-center gap-3">
           {espnSource
-            ? <span className="text-xs bg-green-900 text-green-300 px-3 py-1 rounded-full font-medium">Live from ESPN</span>
+            ? <span className="text-xs bg-green-900 text-green-300 px-3 py-1 rounded-full font-medium">Live from ESPN{espnEventName ? `: ${espnEventName}` : ''}</span>
             : <span className="text-xs bg-yellow-900 text-yellow-300 px-3 py-1 rounded-full font-medium">Fallback player list</span>
           }
         </div>
@@ -220,6 +226,8 @@ export default async function CommissionerPage() {
         users={users}
         cutPlayers={cutPlayers}
         existingTeamsByLT={existingTeamsByLT}
+        espnEventId={espnEventId}
+        espnEventName={espnEventName}
       />
     </div>
   )

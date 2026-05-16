@@ -138,14 +138,14 @@ function inferThru(c: RawCompetitor): string | null {
   return 'F'
 }
 
-async function fetchScoreboard(): Promise<{ eventId: string; competitors: RawCompetitor[] } | null> {
+async function fetchScoreboard(): Promise<{ eventId: string; eventName: string; competitors: RawCompetitor[] } | null> {
   const res = await fetch(SCOREBOARD_URL, { headers: HEADERS, cache: 'no-store' })
   if (!res.ok) return null
   const data = await res.json()
   const event = data?.events?.[0]
   if (!event) return null
   const competitors: RawCompetitor[] = event?.competitions?.[0]?.competitors ?? []
-  return { eventId: event.id, competitors }
+  return { eventId: event.id, eventName: event.name ?? event.shortName ?? '', competitors }
 }
 
 export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPlayer[]> {
@@ -193,8 +193,14 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
   })
 }
 
-/** Fetch the currently active PGA tour event ID from ESPN scoreboard */
+/** Fetch the currently active PGA tour event from ESPN scoreboard */
 export async function fetchCurrentEspnEventId(): Promise<string | null> {
   const result = await fetchScoreboard()
   return result?.eventId ?? null
+}
+
+export async function fetchCurrentEspnEvent(): Promise<{ eventId: string; eventName: string } | null> {
+  const result = await fetchScoreboard()
+  if (!result) return null
+  return { eventId: result.eventId, eventName: result.eventName }
 }
