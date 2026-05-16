@@ -394,11 +394,14 @@ function DraftView({
   espnEventId: string | null
   espnEventName: string | null
 }) {
-  // Auto-select the tournament matching the current ESPN event, falling back to first available
-  const autoMatch = espnEventId
-    ? availableTournaments.find((t) => t.espnEventId === espnEventId) ?? availableTournaments[0]
-    : availableTournaments[0]
-  const [selectedTournamentId, setSelectedTournamentId] = useState(autoMatch?.id ?? '')
+  // Lock to the tournament whose espn_event_id matches the live player pool.
+  // If no match, fall back to a manual dropdown.
+  const espnMatchedTournament = espnEventId
+    ? availableTournaments.find((t) => t.espnEventId === espnEventId) ?? null
+    : null
+  const [selectedTournamentId, setSelectedTournamentId] = useState(
+    espnMatchedTournament?.id ?? availableTournaments[0]?.id ?? ''
+  )
   const [search, setSearch] = useState('')
   const [filterCutOnly, setFilterCutOnly] = useState(false)
   const [selectedPlayer, setSelectedPlayer] = useState<CutPlayer | null>(null)
@@ -473,31 +476,37 @@ function DraftView({
 
   return (
     <div className="space-y-4">
-      {/* Tournament selector + save bar */}
+      {/* Tournament + save bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
         <div className="space-y-1 flex-1 min-w-48">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
-            {espnEventId && autoMatch?.espnEventId === espnEventId && (
+          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
+          {espnMatchedTournament ? (
+            // Locked to live ESPN event — no manual selection needed
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-100">{espnMatchedTournament.name}</span>
               <span className="text-xs bg-green-900 text-green-400 px-2 py-0.5 rounded-full font-medium">● Live on ESPN</span>
-            )}
-            {espnEventId && !autoMatch && espnEventName && (
-              <span className="text-xs bg-yellow-900 text-yellow-400 px-2 py-0.5 rounded-full font-medium">ESPN: {espnEventName} — not in DB</span>
-            )}
-          </div>
-          <select
-            value={selectedTournamentId}
-            onChange={(e) => setSelectedTournamentId(e.target.value)}
-            className={`${inputCls} w-full`}
-          >
-            {availableTournaments.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+            </div>
+          ) : espnEventId && espnEventName ? (
+            // ESPN is live but this event isn't in the DB yet
+            <p className="text-sm text-yellow-400">
+              ESPN is showing <span className="font-semibold">{espnEventName}</span> — add it in Admin first.
+            </p>
+          ) : (
+            // No live ESPN event — manual fallback
+            <select
+              value={selectedTournamentId}
+              onChange={(e) => setSelectedTournamentId(e.target.value)}
+              className={`${inputCls} w-full`}
+            >
+              {availableTournaments.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
         </div>
         <button
           onClick={handleSave}
-          disabled={isPending}
+          disabled={isPending || !selectedTournamentId}
           className="ml-auto px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors"
         >
           {isPending ? 'Saving…' : 'Save Draft'}
