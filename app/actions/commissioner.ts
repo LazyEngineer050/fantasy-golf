@@ -137,14 +137,43 @@ export async function createUser(displayName: string): Promise<{ id: string } | 
  */
 export async function saveDraft(
   leagueSeasonId: string,
-  tournamentId: string,
-  picks: { userId: string; players: CutPlayer[] }[]
+  tournamentId: string | null,
+  picks: { userId: string; players: CutPlayer[] }[],
+  espnEvent?: { eventId: string; name: string; startDate: string | null }
 ) {
-  if (!leagueSeasonId || !tournamentId) return { error: 'League season and tournament are required' }
+  if (!leagueSeasonId) return { error: 'League season is required' }
   if (picks.length === 0) return { error: 'No picks provided' }
   if (picks.some((p) => p.players.length === 0)) return { error: 'All members need at least one player' }
 
   const supabase = createSupabaseServiceClient()
+
+  // Resolve tournament ID — find existing by espn_event_id or create on the fly
+  if (!tournamentId && espnEvent) {
+    const { data: existing } = await supabase
+      .from('tournaments')
+      .select('id')
+      .eq('espn_event_id', espnEvent.eventId)
+      .maybeSingle()
+
+    if (existing) {
+      tournamentId = existing.id
+    } else {
+      const startDate = espnEvent.startDate ?? new Date().toISOString().slice(0, 10)
+      // end_date = startDate + 3 days (standard 4-day tournament)
+      const endDate = new Date(new Date(startDate + 'T12:00:00Z').getTime() + 3 * 86400000).toISOString().slice(0, 10)
+      const year = new Date(startDate + 'T12:00:00Z').getFullYear()
+      const { data: season } = await supabase.from('seasons').select('id').eq('year', year).maybeSingle()
+      const { data: created, error: tErr } = await supabase
+        .from('tournaments')
+        .insert({ name: espnEvent.name, espn_event_id: espnEvent.eventId, start_date: startDate, end_date: endDate, season_id: season?.id ?? null })
+        .select('id')
+        .single()
+      if (tErr || !created) return { error: tErr?.message ?? 'Failed to create tournament' }
+      tournamentId = created.id
+    }
+  }
+
+  if (!tournamentId) return { error: 'No tournament selected' }
 
   // Create or reuse league_tournament
   const { data: existingLT } = await supabase

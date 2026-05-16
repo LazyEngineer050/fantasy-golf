@@ -180,11 +180,13 @@ export default async function CommissionerPage() {
   let espnSource = false
   let espnEventId: string | null = null
   let espnEventName: string | null = null
+  let espnEventDate: string | null = null
   try {
     const espnEvent = await fetchCurrentEspnEvent()
     if (espnEvent) {
       espnEventId = espnEvent.eventId
       espnEventName = espnEvent.eventName
+      espnEventDate = espnEvent.eventDate
       const espnPlayers = await fetchEspnLeaderboard(espnEvent.eventId)
       const nonWd = espnPlayers.filter((p) => p.status !== 'wd')
       if (nonWd.length > 0) {
@@ -232,6 +234,7 @@ export default async function CommissionerPage() {
         existingTeamsByLT={existingTeamsByLT}
         espnEventId={espnEventId}
         espnEventName={espnEventName}
+        espnEventDate={espnEventDate}
       />
     </div>
   )

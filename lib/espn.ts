@@ -138,14 +138,17 @@ function inferThru(c: RawCompetitor): string | null {
   return 'F'
 }
 
-async function fetchScoreboard(): Promise<{ eventId: string; eventName: string; competitors: RawCompetitor[] } | null> {
+async function fetchScoreboard(): Promise<{ eventId: string; eventName: string; eventDate: string | null; competitors: RawCompetitor[] } | null> {
   const res = await fetch(SCOREBOARD_URL, { headers: HEADERS, cache: 'no-store' })
   if (!res.ok) return null
   const data = await res.json()
   const event = data?.events?.[0]
   if (!event) return null
   const competitors: RawCompetitor[] = event?.competitions?.[0]?.competitors ?? []
-  return { eventId: event.id, eventName: event.name ?? event.shortName ?? '', competitors }
+  // eventDate: prefer competitions[0].date, fall back to event.date (ISO string)
+  const rawDate: string | null = event?.competitions?.[0]?.date ?? event?.date ?? null
+  const eventDate = rawDate ? rawDate.slice(0, 10) : null // YYYY-MM-DD
+  return { eventId: event.id, eventName: event.name ?? event.shortName ?? '', eventDate, competitors }
 }
 
 export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPlayer[]> {
@@ -199,8 +202,8 @@ export async function fetchCurrentEspnEventId(): Promise<string | null> {
   return result?.eventId ?? null
 }
 
-export async function fetchCurrentEspnEvent(): Promise<{ eventId: string; eventName: string } | null> {
+export async function fetchCurrentEspnEvent(): Promise<{ eventId: string; eventName: string; eventDate: string | null } | null> {
   const result = await fetchScoreboard()
   if (!result) return null
-  return { eventId: result.eventId, eventName: result.eventName }
+  return { eventId: result.eventId, eventName: result.eventName, eventDate: result.eventDate }
 }

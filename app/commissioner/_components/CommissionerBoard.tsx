@@ -34,6 +34,7 @@ interface Props {
   existingTeamsByLT: Record<string, ExistingTeamPicks[]>
   espnEventId: string | null
   espnEventName: string | null
+  espnEventDate: string | null
 }
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500'
@@ -50,6 +51,7 @@ export default function CommissionerBoard({
   existingTeamsByLT,
   espnEventId,
   espnEventName,
+  espnEventDate,
 }: Props) {
   const [selectedLeagueId, setSelectedLeagueId] = useState(initialLeagues[0]?.id ?? '')
   const [view, setView] = useState<'members' | 'draft' | 'manage'>('members')
@@ -141,6 +143,7 @@ export default function CommissionerBoard({
           cutPlayers={cutPlayers}
           espnEventId={espnEventId}
           espnEventName={espnEventName}
+          espnEventDate={espnEventDate}
         />
       )}
 
@@ -386,6 +389,7 @@ function DraftView({
   cutPlayers,
   espnEventId,
   espnEventName,
+  espnEventDate,
 }: {
   leagueSeason: LeagueSeasonRow
   availableTournaments: TournamentRow[]
@@ -393,9 +397,10 @@ function DraftView({
   cutPlayers: CutPlayer[]
   espnEventId: string | null
   espnEventName: string | null
+  espnEventDate: string | null
 }) {
-  // Lock to the tournament whose espn_event_id matches the live player pool.
-  // If no match, fall back to a manual dropdown.
+  // Lock to the live ESPN event. If it's already in the DB, use its ID;
+  // otherwise saveDraft will create it automatically on submit.
   const espnMatchedTournament = espnEventId
     ? availableTournaments.find((t) => t.espnEventId === espnEventId) ?? null
     : null
@@ -441,16 +446,20 @@ function DraftView({
   }
 
   function handleSave() {
-    if (!selectedTournamentId) { setSaveError('Select a tournament first'); return }
     const picks = leagueSeason.members.map((m) => ({
       userId: m.userId,
       players: memberPicks[m.userId] ?? [],
     }))
     if (picks.every((p) => p.players.length === 0)) { setSaveError('Assign at least one player'); return }
+    // Determine tournament: use DB match if available, else pass ESPN info for auto-create
+    const tId = espnMatchedTournament?.id ?? (espnEventId ? null : selectedTournamentId)
+    const espnEvent = !espnMatchedTournament && espnEventId && espnEventName
+      ? { eventId: espnEventId, name: espnEventName, startDate: espnEventDate }
+      : undefined
     setSaveError(null)
     setSavedOk(false)
     startTransition(async () => {
-      const res = await saveDraft(leagueSeason.id, selectedTournamentId, picks)
+      const res = await saveDraft(leagueSeason.id, tId, picks, espnEvent)
       if ('error' in res) { setSaveError(res.error ?? null); return }
       setSavedOk(true)
       setSavedLTId(res.leagueTournamentId ?? null)
@@ -480,17 +489,12 @@ function DraftView({
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
         <div className="space-y-1 flex-1 min-w-48">
           <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tournament</label>
-          {espnMatchedTournament ? (
-            // Locked to live ESPN event — no manual selection needed
+          {espnEventId && espnEventName ? (
+            // Locked to live ESPN event (in DB or will be created on save)
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-gray-100">{espnMatchedTournament.name}</span>
+              <span className="text-sm font-semibold text-gray-100">{espnEventName}</span>
               <span className="text-xs bg-green-900 text-green-400 px-2 py-0.5 rounded-full font-medium">● Live on ESPN</span>
             </div>
-          ) : espnEventId && espnEventName ? (
-            // ESPN is live but this event isn't in the DB yet
-            <p className="text-sm text-yellow-400">
-              ESPN is showing <span className="font-semibold">{espnEventName}</span> — add it in Admin first.
-            </p>
           ) : (
             // No live ESPN event — manual fallback
             <select
@@ -506,7 +510,7 @@ function DraftView({
         </div>
         <button
           onClick={handleSave}
-          disabled={isPending || !selectedTournamentId}
+          disabled={isPending}
           className="ml-auto px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors"
         >
           {isPending ? 'Saving…' : 'Save Draft'}
