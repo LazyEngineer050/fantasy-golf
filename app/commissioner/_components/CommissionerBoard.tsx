@@ -413,8 +413,9 @@ function DraftView({
   const [search, setSearch] = useState('')
   const [filterCutOnly, setFilterCutOnly] = useState(false)
   const [selectedPlayer, setSelectedPlayer] = useState<CutPlayer | null>(null)
-  const [memberPicks, setMemberPicks] = useState<Record<string, CutPlayer[]>>(
-    Object.fromEntries(leagueSeason.members.map((m) => [m.userId, []]))
+  // memberPicks: userId → array of 4 slots (null = empty), index = round - 1
+  const [memberPicks, setMemberPicks] = useState<Record<string, (CutPlayer | null)[]>>(
+    Object.fromEntries(leagueSeason.members.map((m) => [m.userId, [null, null, null, null]]))
   )
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedOk, setSavedOk] = useState(false)
@@ -433,19 +434,33 @@ function DraftView({
     setSubView('pickorder')
   }
 
+  function moveTeam(fromIdx: number, toIdx: number) {
+    setDraftOrder((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      return next
+    })
+  }
+
   // Build the full snake draft sequence
   const N = draftOrder.length
-  const snakePicks: Array<{ pickNum: number; round: number; slot: number; member: typeof draftOrder[0] }> = []
+  const snakePicks: Array<{ pickNum: number; round: number; member: typeof draftOrder[0] }> = []
   for (let round = 1; round <= 4; round++) {
     const forward = round % 2 === 1
     for (let slot = 0; slot < N; slot++) {
       const memberIdx = forward ? slot : N - 1 - slot
-      snakePicks.push({ pickNum: (round - 1) * N + slot + 1, round, slot: memberIdx + 1, member: draftOrder[memberIdx] })
+      snakePicks.push({ pickNum: (round - 1) * N + slot + 1, round, member: draftOrder[memberIdx] })
     }
   }
 
+  // Current pick = first unfilled slot in snake order
+  const currentPickIdx = snakePicks.findIndex(
+    (p) => (memberPicks[p.member.userId] ?? [])[p.round - 1] == null
+  )
+
   const allAssigned = new Set(
-    Object.values(memberPicks).flatMap((players) => players.map((p) => p.espnPlayerId))
+    Object.values(memberPicks).flatMap((slots) => slots.flatMap((p) => p ? [p.espnPlayerId] : []))
   )
 
   const availablePlayers = cutPlayers
@@ -453,31 +468,43 @@ function DraftView({
     .filter((p) => !filterCutOnly || p.madeCut)
     .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
 
-  function assignPlayer(userId: string) {
+  function assignPlayerToTeam(userId: string) {
     if (!selectedPlayer) return
     setMemberPicks((prev) => {
-      const current = prev[userId] ?? []
-      if (current.length >= 4) return prev
-      if (current.find((p) => p.espnPlayerId === selectedPlayer.espnPlayerId)) return prev
-      return { ...prev, [userId]: [...current, selectedPlayer] }
+      const slots = [...(prev[userId] ?? [null, null, null, null])]
+      const emptyIdx = slots.findIndex((s) => s == null)
+      if (emptyIdx === -1) return prev
+      slots[emptyIdx] = selectedPlayer
+      return { ...prev, [userId]: slots }
     })
     setSelectedPlayer(null)
   }
 
-  function removePlayer(userId: string, espnPlayerId: string) {
-    setMemberPicks((prev) => ({
-      ...prev,
-      [userId]: (prev[userId] ?? []).filter((p) => p.espnPlayerId !== espnPlayerId),
-    }))
+  function assignToCurrentPick(player: CutPlayer) {
+    if (currentPickIdx === -1) return
+    const { member, round } = snakePicks[currentPickIdx]
+    setMemberPicks((prev) => {
+      const slots = [...(prev[member.userId] ?? [null, null, null, null])]
+      slots[round - 1] = player
+      return { ...prev, [member.userId]: slots }
+    })
+    setSelectedPlayer(null)
+  }
+
+  function removePickSlot(userId: string, roundIdx: number) {
+    setMemberPicks((prev) => {
+      const slots = [...(prev[userId] ?? [null, null, null, null])]
+      slots[roundIdx] = null
+      return { ...prev, [userId]: slots }
+    })
   }
 
   function handleSave() {
     const picks = leagueSeason.members.map((m) => ({
       userId: m.userId,
-      players: memberPicks[m.userId] ?? [],
+      players: (memberPicks[m.userId] ?? []).filter((p): p is CutPlayer => p != null),
     }))
     if (picks.every((p) => p.players.length === 0)) { setSaveError('Assign at least one player'); return }
-    // Determine tournament: use DB match if available, else pass ESPN info for auto-create
     const tId = espnMatchedTournament?.id ?? (espnEventId ? null : selectedTournamentId)
     const espnEvent = !espnMatchedTournament && espnEventId && espnEventName
       ? { eventId: espnEventId, name: espnEventName, startDate: espnEventDate }
@@ -533,37 +560,23 @@ function DraftView({
           )}
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          {/* Sub-view toggle */}
           {(['teams', 'pickorder'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setSubView(v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                subView === v ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'
-              }`}
+            <button key={v} onClick={() => setSubView(v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${subView === v ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-100'}`}
             >
               {v === 'teams' ? 'Teams' : 'Pick Order'}
             </button>
           ))}
-          <button
-            onClick={randomizeDraftOrder}
-            className="px-3 py-1.5 bg-purple-800 hover:bg-purple-700 text-purple-100 text-xs font-semibold rounded-lg transition-colors"
-          >
+          <button onClick={randomizeDraftOrder} className="px-3 py-1.5 bg-purple-800 hover:bg-purple-700 text-purple-100 text-xs font-semibold rounded-lg transition-colors">
             🎲 Randomize
           </button>
-          <button
-            onClick={handleSave}
-            disabled={isPending}
-            className="px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors"
-          >
+          <button onClick={handleSave} disabled={isPending} className="px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white font-semibold text-sm rounded-lg transition-colors">
             {isPending ? 'Saving…' : 'Save Draft'}
           </button>
         </div>
       </div>
 
-      {saveError && (
-        <p className="text-red-400 text-sm font-medium bg-red-950 border border-red-800 rounded-lg px-3 py-2">✗ {saveError}</p>
-      )}
+      {saveError && <p className="text-red-400 text-sm font-medium bg-red-950 border border-red-800 rounded-lg px-3 py-2">✗ {saveError}</p>}
       {savedOk && (
         <p className="text-green-400 text-sm font-medium bg-green-950 border border-green-800 rounded-lg px-3 py-2">
           ✓ Draft saved! League is now live.{' '}
@@ -571,70 +584,96 @@ function DraftView({
         </p>
       )}
 
-      {/* Pick Order view */}
+      {/* ── Pick Order view ── */}
       {subView === 'pickorder' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-300">Snake Draft Order — {N} teams · {N * 4} picks</h2>
-            <span className="text-xs text-gray-500">Odd rounds left→right · Even rounds right→left</span>
-          </div>
-          <div className="grid grid-cols-4 divide-x divide-gray-800">
-            {[1, 2, 3, 4].map((round) => (
-              <div key={round} className="flex flex-col">
-                <div className="px-3 py-2 bg-gray-800/60 text-xs font-semibold text-gray-400 uppercase tracking-wide text-center">
-                  Round {round}
-                </div>
-                {snakePicks.filter((p) => p.round === round).map((p) => (
-                  <div key={p.pickNum} className="flex items-center gap-2 px-3 py-2.5 border-t border-gray-800/50">
-                    <span className="text-xs text-gray-600 w-5 shrink-0">{p.pickNum}</span>
-                    <span className="text-sm text-gray-100 truncate">{p.member.displayName}</span>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          {/* Left: order setup + full snake list */}
+          <div className="space-y-3">
+            {/* Draft order — numbered position buttons */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Draft Order — click a number to move</p>
+              {draftOrder.map((member, idx) => (
+                <div key={member.userId} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 w-4">{idx + 1}.</span>
+                  <span className="text-sm text-gray-200 flex-1">{member.displayName}</span>
+                  <div className="flex gap-1">
+                    {draftOrder.map((_, toIdx) => (
+                      <button
+                        key={toIdx}
+                        onClick={() => moveTeam(idx, toIdx)}
+                        className={`w-6 h-6 rounded text-xs font-bold transition-colors ${
+                          toIdx === idx ? 'bg-green-700 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-400'
+                        }`}
+                      >
+                        {toIdx + 1}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Teams view */}
-      {subView === 'teams' && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* Player pool */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="text-lg font-bold text-gray-100">
-              Players <span className="text-sm font-normal text-gray-500">({availablePlayers.length} available)</span>
-            </h2>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={filterCutOnly} onChange={(e) => setFilterCutOnly(e.target.checked)} className="w-4 h-4 accent-green-500" />
-              <span className="text-sm text-gray-300">Made cut only</span>
-            </label>
-          </div>
-          <input
-            type="text"
-            placeholder="Search players…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={`${inputCls} w-full`}
-          />
-          {selectedPlayer && (
-            <div className="flex items-center justify-between bg-green-900 border border-green-700 rounded-lg px-3 py-2 text-sm">
-              <span className="text-green-200 font-medium">Selected: {selectedPlayer.name}</span>
-              <button onClick={() => setSelectedPlayer(null)} className="text-green-500 hover:text-green-300 text-xs">Deselect</button>
+                </div>
+              ))}
             </div>
-          )}
-          <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
-            {availablePlayers.map((player) => {
-              const isSelected = selectedPlayer?.espnPlayerId === player.espnPlayerId
-              return (
+
+            {/* Snake draft list */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-gray-800 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                Snake Draft — {N * 4} picks
+              </div>
+              <div className="divide-y divide-gray-800/50">
+                {snakePicks.map((pick, i) => {
+                  const player = (memberPicks[pick.member.userId] ?? [])[pick.round - 1]
+                  const isCurrent = i === currentPickIdx
+                  return (
+                    <div key={pick.pickNum} className={`flex items-center gap-3 px-4 py-2.5 ${isCurrent ? 'bg-green-950/50' : ''}`}>
+                      <span className="text-xs text-gray-600 w-5 tabular-nums">{pick.pickNum}</span>
+                      <span className={`text-sm font-medium w-28 truncate ${isCurrent ? 'text-green-300' : 'text-gray-300'}`}>
+                        {pick.member.displayName}
+                      </span>
+                      <span className="flex-1 text-sm">
+                        {player
+                          ? <span className="flex items-center justify-between">
+                              <span className="text-gray-100">{player.name}</span>
+                              <button onClick={() => removePickSlot(pick.member.userId, pick.round - 1)} className="text-gray-600 hover:text-red-400 text-xs ml-2">✕</button>
+                            </span>
+                          : isCurrent
+                            ? <span className="text-green-600 text-xs">← pick a player</span>
+                            : <span className="text-gray-700">—</span>
+                        }
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: player pool — clicking assigns to current pick */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-gray-100">
+                Players <span className="text-sm font-normal text-gray-500">({availablePlayers.length} available)</span>
+              </h2>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={filterCutOnly} onChange={(e) => setFilterCutOnly(e.target.checked)} className="w-4 h-4 accent-green-500" />
+                <span className="text-sm text-gray-300">Made cut only</span>
+              </label>
+            </div>
+            {currentPickIdx !== -1 && (
+              <p className="text-xs text-green-500 font-medium">
+                Pick {snakePicks[currentPickIdx].pickNum} — {snakePicks[currentPickIdx].member.displayName} is on the clock
+              </p>
+            )}
+            <input type="text" placeholder="Search players…" value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputCls} w-full`} />
+            <div className="space-y-1.5 max-h-[640px] overflow-y-auto pr-1">
+              {availablePlayers.map((player) => (
                 <button
                   key={player.espnPlayerId}
-                  onClick={() => setSelectedPlayer(isSelected ? null : player)}
+                  onClick={() => currentPickIdx !== -1 && assignToCurrentPick(player)}
+                  disabled={currentPickIdx === -1}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-colors ${
-                    isSelected ? 'border-green-500 bg-green-900/40 text-green-200'
-                    : player.madeCut ? 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-100'
-                    : 'border-gray-800 bg-gray-900 hover:border-gray-600 text-gray-400'
+                    currentPickIdx === -1 ? 'border-gray-800 bg-gray-900 opacity-40 cursor-not-allowed'
+                    : player.madeCut ? 'border-gray-700 bg-gray-800 hover:border-green-500 hover:bg-green-950/20 text-gray-100 cursor-pointer'
+                    : 'border-gray-800 bg-gray-900 hover:border-green-600 text-gray-400 cursor-pointer'
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -646,63 +685,101 @@ function DraftView({
                     {player.totalStrokes != null && <span>{player.totalStrokes}</span>}
                   </div>
                 </button>
-              )
-            })}
+              ))}
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Teams */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-bold text-gray-100">Teams</h2>
-          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-            {draftOrder.map((member) => {
-                const picks = memberPicks[member.userId] ?? []
-                const isFull = picks.length >= 4
+      {/* ── Teams view ── */}
+      {subView === 'teams' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Player pool */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-gray-100">
+                Players <span className="text-sm font-normal text-gray-500">({availablePlayers.length} available)</span>
+              </h2>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={filterCutOnly} onChange={(e) => setFilterCutOnly(e.target.checked)} className="w-4 h-4 accent-green-500" />
+                <span className="text-sm text-gray-300">Made cut only</span>
+              </label>
+            </div>
+            <input type="text" placeholder="Search players…" value={search} onChange={(e) => setSearch(e.target.value)} className={`${inputCls} w-full`} />
+            {selectedPlayer && (
+              <div className="flex items-center justify-between bg-green-900 border border-green-700 rounded-lg px-3 py-2 text-sm">
+                <span className="text-green-200 font-medium">Selected: {selectedPlayer.name}</span>
+                <button onClick={() => setSelectedPlayer(null)} className="text-green-500 hover:text-green-300 text-xs">Deselect</button>
+              </div>
+            )}
+            <div className="space-y-1.5 max-h-[520px] overflow-y-auto pr-1">
+              {availablePlayers.map((player) => {
+                const isSelected = selectedPlayer?.espnPlayerId === player.espnPlayerId
+                return (
+                  <button
+                    key={player.espnPlayerId}
+                    onClick={() => setSelectedPlayer(isSelected ? null : player)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                      isSelected ? 'border-green-500 bg-green-900/40 text-green-200'
+                      : player.madeCut ? 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-100'
+                      : 'border-gray-800 bg-gray-900 hover:border-gray-600 text-gray-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{player.name}</span>
+                      {!player.madeCut && <span className="text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-400 font-medium">CUT</span>}
+                    </div>
+                    <div className="text-right text-xs text-gray-400">
+                      {player.position && <span className="mr-2">{player.position}</span>}
+                      {player.totalStrokes != null && <span>{player.totalStrokes}</span>}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Teams */}
+          <div className="space-y-3">
+            <h2 className="text-lg font-bold text-gray-100">Teams</h2>
+            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+              {draftOrder.map((member) => {
+                const slots = memberPicks[member.userId] ?? [null, null, null, null]
+                const filledCount = slots.filter(Boolean).length
+                const isFull = filledCount >= 4
                 const canReceive = !!selectedPlayer && !isFull
                 return (
                   <div
                     key={member.userId}
-                    onClick={() => canReceive && assignPlayer(member.userId)}
-                    className={`rounded-xl border p-4 transition-colors ${
-                      canReceive ? 'border-green-500 bg-green-950/30 cursor-pointer hover:bg-green-950/50' : 'border-gray-700 bg-gray-900'
-                    }`}
+                    onClick={() => canReceive && assignPlayerToTeam(member.userId)}
+                    className={`rounded-xl border p-4 transition-colors ${canReceive ? 'border-green-500 bg-green-950/30 cursor-pointer hover:bg-green-950/50' : 'border-gray-700 bg-gray-900'}`}
                   >
                     <div className="flex items-center justify-between mb-3">
                       <p className="font-semibold text-gray-100">{member.displayName}</p>
-                      <span className="text-xs text-gray-500">{picks.length}/4</span>
+                      <span className="text-xs text-gray-500">{filledCount}/4</span>
                     </div>
                     <div className="space-y-1.5">
-                      {picks.map((player, i) => (
-                        <div
-                          key={player.espnPlayerId}
-                          className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                      {slots.map((player, i) => player ? (
+                        <div key={i} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2" onClick={(e) => e.stopPropagation()}>
                           <span className="text-sm text-gray-100">
                             <span className="text-gray-600 text-xs mr-2">R{i + 1}</span>
                             {player.name}
                           </span>
-                          <button onClick={() => removePlayer(member.userId, player.espnPlayerId)} className="text-xs text-gray-600 hover:text-red-400 transition-colors">✕</button>
+                          <button onClick={() => removePickSlot(member.userId, i)} className="text-xs text-gray-600 hover:text-red-400 transition-colors">✕</button>
                         </div>
-                      ))}
-                      {Array.from({ length: 4 - picks.length }).map((_, i) => (
-                        <div
-                          key={`empty-${i}`}
-                          className={`flex items-center px-3 py-2 rounded-lg border border-dashed text-xs ${
-                            canReceive ? 'border-green-600 text-green-600' : 'border-gray-700 text-gray-700'
-                          }`}
-                        >
-                          {canReceive ? `Click to assign ${selectedPlayer!.name}` : `Round ${picks.length + i + 1} — empty`}
+                      ) : (
+                        <div key={i} className={`flex items-center px-3 py-2 rounded-lg border border-dashed text-xs ${canReceive ? 'border-green-600 text-green-600' : 'border-gray-700 text-gray-700'}`}>
+                          {canReceive ? `Click to assign ${selectedPlayer!.name}` : `Round ${i + 1} — empty`}
                         </div>
                       ))}
                     </div>
                   </div>
                 )
               })}
+            </div>
           </div>
         </div>
-      </div>
-      )} {/* end subView === 'teams' */}
+      )}
     </div>
   )
 }
