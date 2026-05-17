@@ -353,15 +353,19 @@ export default function Leaderboard({
               const currentRound = playedRounds[0] ?? null // highest round with data
               const colSpan = 2 + playedRounds.length
 
-              // Only players who have started today's round (thru !== null) count toward turds
-              const startedToday = allPicks.filter((p) => p.thru !== null && p.today_strokes !== null)
-              const allTodayScores = startedToday.map((p) => p.today_strokes!)
+              // If any player has started today, use only started players (new round in progress).
+              // Between rounds nobody has thru, so carry forward previous round scores instead.
+              const anyStartedToday = allPicks.some((p) => p.thru !== null)
+              const turdPicks = anyStartedToday
+                ? allPicks.filter((p) => p.thru !== null && p.today_strokes !== null)
+                : allPicks.filter((p) => p.today_strokes !== null)
+              const allTodayScores = turdPicks.map((p) => p.today_strokes!)
               const fieldAvgToday = allTodayScores.length > 0
                 ? allTodayScores.reduce((a, b) => a + b, 0) / allTodayScores.length
                 : null
 
               // Turd sizing: compute globally so sizes are relative across all players
-              const allTurdPicks = fieldAvgToday === null ? [] : startedToday.filter((p) =>
+              const allTurdPicks = fieldAvgToday === null ? [] : turdPicks.filter((p) =>
                 p.today_strokes! >= fieldAvgToday + 3 ||
                 (p.today_strokes! > 0 && fieldAvgToday < 0)
               )
