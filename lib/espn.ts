@@ -80,7 +80,7 @@ export function extractTeeTime(linescore: RawLinescore | undefined): string | nu
   return `${hours}:${minutes} ${period} ET`
 }
 
-export { RawLinescore, RawCompetitor }
+export type { RawLinescore, RawCompetitor }
 
 // Returns true if a player has confirmed they made the cut:
 // either they have R3/R4 score data, or they have an R3 tee time scheduled.
