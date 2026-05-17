@@ -49,14 +49,14 @@ interface RawCompetitor {
   linescores?: RawLinescore[]
 }
 
-function parseRelPar(s: string | undefined | null): number | null {
+export function parseRelPar(s: string | undefined | null): number | null {
   if (!s) return null
   if (s === 'E' || s === 'EVEN' || s === '-') return 0
   const n = parseInt(s, 10)
   return isNaN(n) ? null : n
 }
 
-function roundLinescore(linescores: RawLinescore[], period: number): RawLinescore | undefined {
+export function roundLinescore(linescores: RawLinescore[], period: number): RawLinescore | undefined {
   return linescores.find((l) => l.period === period)
 }
 
@@ -65,7 +65,7 @@ function roundLinescore(linescores: RawLinescore[], period: number): RawLinescor
  * ESPN stores it as the last stat: "Sun Apr 12 14:25:00 PDT 2026"
  * The time is in Eastern (despite the "PDT" label — ESPN bug).
  */
-function extractTeeTime(linescore: RawLinescore | undefined): string | null {
+export function extractTeeTime(linescore: RawLinescore | undefined): string | null {
   if (!linescore) return null
   const dateStr = linescore.statistics?.categories?.[0]?.stats?.at(-1)?.displayValue
   if (!dateStr) return null
@@ -80,10 +80,12 @@ function extractTeeTime(linescore: RawLinescore | undefined): string | null {
   return `${hours}:${minutes} ${period} ET`
 }
 
+export { RawLinescore, RawCompetitor }
+
 // Returns true if a player has confirmed they made the cut:
 // either they have R3/R4 score data, or they have an R3 tee time scheduled.
 // value is raw strokes (always > 0 when played, 0 when unplayed).
-function hasMadeCut(c: RawCompetitor): boolean {
+export function hasMadeCut(c: RawCompetitor): boolean {
   const r3ls = roundLinescore(c.linescores ?? [], 3)
   const r4ls = roundLinescore(c.linescores ?? [], 4)
   if (r3ls?.value != null && r3ls.value > 0) return true
@@ -92,7 +94,7 @@ function hasMadeCut(c: RawCompetitor): boolean {
   return extractTeeTime(r3ls) !== null
 }
 
-function determineCutLine(competitors: RawCompetitor[]): number {
+export function determineCutLine(competitors: RawCompetitor[]): number {
   // Derive actual cut line from who made it to R3:
   // worst 2-round relative-to-par total among confirmed R3 players = the real cut line.
   const madeR3 = competitors.filter(hasMadeCut)
@@ -121,7 +123,7 @@ function determineCutLine(competitors: RawCompetitor[]): number {
   return totals[cutIndex] ?? 9999
 }
 
-function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd' {
+export function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd' {
   const r1ls = roundLinescore(c.linescores ?? [], 1)
   const r2ls = roundLinescore(c.linescores ?? [], 2)
 
@@ -141,7 +143,7 @@ function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut' | 'wd'
   return r1 + r2 <= cutLine ? 'active' : 'cut'
 }
 
-function inferThru(c: RawCompetitor): string | null {
+export function inferThru(c: RawCompetitor): string | null {
   const linescores = c.linescores ?? []
   // value is raw strokes — rounds with value > 0 have been played
   const started = linescores.filter((l) => l.value > 0).sort((a, b) => b.period - a.period)
