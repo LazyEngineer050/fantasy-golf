@@ -115,6 +115,12 @@ describe('isTurd', () => {
     expect(isTurd(null, -1)).toBe(false)
   })
 
+  it('caller must filter to started players (thru !== null) before calling', () => {
+    // isTurd itself has no thru awareness — callers filter first
+    // This test documents the contract: pass null if player has not started
+    expect(isTurd(null, -2)).toBe(false)
+  })
+
   it('returns false when fieldAvgToday is null', () => {
     expect(isTurd(3, null)).toBe(false)
   })
