@@ -15,21 +15,6 @@ export default async function DashboardPage({ params }: PageProps) {
 
   const supabase = await createSupabaseServerClient()
 
-  // Load all league_tournaments for the switcher
-  const { data: allLTsRaw } = await supabase
-    .from('league_tournaments')
-    .select('id, tournament_id, tournaments(name, start_date)')
-    .order('created_at', { ascending: false })
-
-  type AllLTRow = { id: string; tournament_id: string; tournaments: { name: string; start_date: string } | null }
-  const allLeagues = ((allLTsRaw ?? []) as unknown as AllLTRow[])
-    .filter((lt) => lt.tournaments)
-    .sort((a, b) => b.tournaments!.start_date.localeCompare(a.tournaments!.start_date))
-    .map((lt) => {
-      const year = new Date(lt.tournaments!.start_date + 'T12:00:00Z').getFullYear()
-      return { id: lt.id, name: `${lt.tournaments!.name} ${year}` }
-    })
-
   // Load this league_tournament
   const { data: ltRaw } = await supabase
     .from('league_tournaments')
@@ -50,8 +35,6 @@ export default async function DashboardPage({ params }: PageProps) {
 
   const lt = ltRaw as unknown as LTRow
   const tournamentId: string = lt.tournaments?.id ?? lt.tournament_id
-  const leagueName = lt.league_seasons?.leagues?.name ?? 'ButteryBiscuits'
-
   type TeamScoreRow = { user_id: string; total_strokes: number | null; rank: number | null; users: { display_name: string } | null }
 
   const { data: teamScoresRaw } = await supabase
@@ -158,12 +141,10 @@ export default async function DashboardPage({ params }: PageProps) {
   return (
     <Leaderboard
       leagueTournamentId={leagueTournamentId}
-      leagueName={leagueName}
       tournamentName={lt.tournaments?.name ?? 'Tournament'}
       leagueStatus={lt.status}
       standings={standings}
       currentUserId={currentUserId}
-      allLeagues={allLeagues}
     />
   )
 }

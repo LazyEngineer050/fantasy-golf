@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { TeamStanding } from '@/lib/types'
@@ -12,12 +11,10 @@ const HISTORY_CAP = 10
 
 interface Props {
   leagueTournamentId: string
-  leagueName: string
   tournamentName: string
   leagueStatus: 'drafting' | 'live' | 'completed'
   standings: TeamStanding[]
   currentUserId: string | null
-  allLeagues: { id: string; name: string }[]
 }
 
 function fmtScore(n: number | null): string {
@@ -77,14 +74,11 @@ function computeWinnings(standings: TeamStanding[]): Map<string, number> {
 
 export default function Leaderboard({
   leagueTournamentId,
-  leagueName,
   tournamentName,
   leagueStatus,
   standings: initialStandings,
   currentUserId,
-  allLeagues,
 }: Props) {
-  const router = useRouter()
   const [standings, setStandings] = useState(initialStandings)
   const [status, setStatus] = useState(leagueStatus)
   const [view, setView] = useState<'teams' | 'players'>('teams')
@@ -263,25 +257,6 @@ export default function Leaderboard({
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      {/* Breadcrumb nav */}
-      <div className="bg-gray-950 border-b border-gray-800/50 px-6 py-2 flex items-center gap-2 text-sm">
-        <Link href="/standings" className="text-gray-500 hover:text-green-400 transition-colors font-medium">⛳ ButteryBiscuits</Link>
-        <span className="text-gray-700">/</span>
-        {allLeagues.length > 1 ? (
-          <select
-            value={leagueTournamentId}
-            onChange={(e) => router.push(`/dashboard/${e.target.value}`)}
-            className="bg-transparent text-gray-400 focus:outline-none cursor-pointer hover:text-green-400 transition-colors"
-          >
-            {allLeagues.map((l) => (
-              <option key={l.id} value={l.id} className="bg-gray-900">{l.name}</option>
-            ))}
-          </select>
-        ) : (
-          <span className="text-gray-400">{leagueName}</span>
-        )}
-      </div>
-
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
@@ -310,6 +285,9 @@ export default function Leaderboard({
               Players
             </button>
           </div>
+          <Link href="/standings" className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-100 rounded-lg border border-gray-700 text-sm font-medium transition-colors">
+            Standings
+          </Link>
         </div>
       </div>
 

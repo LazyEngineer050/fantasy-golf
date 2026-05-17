@@ -3,16 +3,21 @@
 ## Shipped
 - ✅ Live leaderboard with 30 s polling (teams + players views)
 - ✅ Fire 🔥 / ice 🥶 — always one each; persisted to localStorage across refreshes
-- ✅ Overall leader ⭐ (ties supported); 💩 = 3+ strokes worse than drafted field average today
+- ✅ Overall leader ⭐ (ties supported)
+- ✅ Turd 💩 logic: 3+ strokes worse than drafted field avg OR positive while field is negative; dynamic sizing (worst = 2rem, best = 0.8rem); between-round carryover until new round starts
 - ✅ Yellow leader highlight in both Teams and Players views
 - ✅ Tee times for players not yet on the course
-- ✅ Final results & 🏆 winner banner; auto-complete detection; polling stops
+- ✅ Final results & 🏆 winner banner; auto-complete detection (requires R4 scores, not just thru=F); polling stops
 - ✅ Projected winnings on each team card ($20 buy-in, $50 best player, $30 best team, $5 side-bet)
 - ✅ All-time standings as main page — tournaments as rows, players as columns, lifetime winnings totals
 - ✅ Live tournament highlighted in standings with projected figures
 - ✅ Historical data: Masters/PGA/US Open 2025, The Players 2026
 - ✅ League switcher in breadcrumb; status badge in header title; clean nav throughout
 - ✅ Commissioner management tab (rename/delete team, add/remove picks)
+- ✅ Live draft room: real-time snake draft via Supabase Realtime; shareable link from commissioner page
+- ✅ ESPN parsing hardened: dynamic cut line from R3 data, R4 placeholder fix for today_strokes, correct thru/status inference
+- ✅ Shared `lib/winnings.ts`: `computeWinnings`, `isTurd`, `turdSize` pure functions
+- ✅ Test suite: 67 vitest tests covering ESPN parsing, winnings/turd logic
 
 ---
 
@@ -24,10 +29,10 @@ Real authentication so each manager has their own account. Currently identity is
 ### 2. 🏌️ Multi-league support
 Let a user belong to multiple leagues simultaneously. Currently the app assumes one active league per user.
 
-### 3. 🎲 Live draft room
-Replace the offline commissioner draft with a real-time snake draft — each manager picks on a timer, picks broadcast live via Supabase Realtime. `draft_state` table already exists.
+### 3. 📊 Standings page polish
+The standings page `computeWinnings` is a local copy — wire it up to import from `lib/winnings.ts` instead. Also verify live tournament projected figures render correctly after schema changes.
 
-### 4. 📊 Player performance history chart
+### 4. 📈 Player performance history chart
 Mini sparkline per player showing score trend across 4 rounds. Tooltip or expand-on-click.
 
 ### 5. 📱 Push / share notifications
