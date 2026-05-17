@@ -12,7 +12,7 @@
 - ✅ All-time standings as main page — tournaments as rows, players as columns, lifetime winnings totals
 - ✅ Live tournament highlighted in standings with projected figures
 - ✅ Historical data: Masters/PGA/US Open 2025, The Players 2026
-- ✅ League switcher in breadcrumb; status badge in header title; clean nav throughout
+- ✅ Streamlined nav: tournament names on standings are clickable links; Standings button on leaderboard; breadcrumb removed
 - ✅ Commissioner management tab (rename/delete team, add/remove picks)
 - ✅ Live draft room: real-time snake draft via Supabase Realtime; shareable link from commissioner page
 - ✅ ESPN parsing hardened: dynamic cut line from R3 data, R4 placeholder fix for today_strokes, correct thru/status inference
@@ -42,6 +42,8 @@ Browser push or shareable results link. Alert when you move into first, etc.
 
 ## Other ideas (unranked)
 
+- **Playoff support**: if ESPN uses period 5+ linescores for playoff holes, `currentRound` scan needs to extend beyond R4; also guard auto-complete from firing while playoff is live
+- **Deduplicate computeWinnings**: standings page has its own local copy; should import from `lib/winnings.ts`
 - **Configurable contest money structure**: admin UI to set buy-in and prize rules per league (currently hardcoded)
 - **Admin ingest trigger**: button in admin UI to manually trigger an ESPN ingest without curl
 - **Cut tracker**: highlight which teams lose a player to the cut; show score impact
