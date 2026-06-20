@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 import Leaderboard from './_components/Leaderboard'
+import { DEFAULT_PAYOUT, type PayoutConfig } from '@/lib/winnings'
 import type { TeamStanding } from '@/lib/types'
 
 interface PageProps {
@@ -18,7 +19,7 @@ export default async function DashboardPage({ params }: PageProps) {
   // Load this league_tournament
   const { data: ltRaw } = await supabase
     .from('league_tournaments')
-    .select('id, status, tournament_id, league_season_id, tournaments(*), league_seasons(league_id, leagues(name))')
+    .select('id, status, tournament_id, league_season_id, buy_in, best_player_prize, best_team_prize, side_bet, tournaments(*), league_seasons(league_id, leagues(name))')
     .eq('id', leagueTournamentId)
     .single()
 
@@ -29,12 +30,23 @@ export default async function DashboardPage({ params }: PageProps) {
     status: 'drafting' | 'live' | 'completed'
     tournament_id: string
     league_season_id: string
+    buy_in: number
+    best_player_prize: number
+    best_team_prize: number
+    side_bet: number
     tournaments: { id: string; name: string; espn_event_id: string | null } | null
     league_seasons: { league_id: string; leagues: { name: string } | null } | null
   }
 
   const lt = ltRaw as unknown as LTRow
   const tournamentId: string = lt.tournaments?.id ?? lt.tournament_id
+
+  const payoutConfig: PayoutConfig = {
+    buyIn: lt.buy_in ?? DEFAULT_PAYOUT.buyIn,
+    bestPlayerPrize: lt.best_player_prize ?? DEFAULT_PAYOUT.bestPlayerPrize,
+    bestTeamPrize: lt.best_team_prize ?? DEFAULT_PAYOUT.bestTeamPrize,
+    sideBet: lt.side_bet ?? DEFAULT_PAYOUT.sideBet,
+  }
   type TeamScoreRow = { user_id: string; total_strokes: number | null; rank: number | null; users: { display_name: string } | null }
 
   const { data: teamScoresRaw } = await supabase
@@ -145,6 +157,7 @@ export default async function DashboardPage({ params }: PageProps) {
       leagueStatus={lt.status}
       standings={standings}
       currentUserId={currentUserId}
+      payoutConfig={payoutConfig}
     />
   )
 }

@@ -8,7 +8,7 @@ export default async function AdminPage() {
     supabase.from('tournaments').select('id, name, espn_event_id, start_date, end_date').order('start_date', { ascending: false }),
     supabase
       .from('league_tournaments')
-      .select('id, status, tournament_id, league_season_id, tournaments(name), league_seasons(season_id, league_id, seasons(year), leagues(name))')
+      .select('id, status, tournament_id, league_season_id, buy_in, best_player_prize, best_team_prize, side_bet, tournaments(name), league_seasons(season_id, league_id, seasons(year), leagues(name))')
       .order('created_at', { ascending: false }),
   ])
 
@@ -17,6 +17,10 @@ export default async function AdminPage() {
   type LTRow = {
     id: string
     status: 'drafting' | 'live' | 'completed'
+    buy_in: number
+    best_player_prize: number
+    best_team_prize: number
+    side_bet: number
     tournaments: { name: string } | null
     league_seasons: {
       season_id: string
@@ -35,6 +39,10 @@ export default async function AdminPage() {
     tournament_name: lt.tournaments?.name ?? 'Unknown',
     league_name: lt.league_seasons?.leagues?.name ?? 'Unknown',
     season_year: lt.league_seasons?.seasons?.year ?? null,
+    buy_in: lt.buy_in ?? 20,
+    best_player_prize: lt.best_player_prize ?? 50,
+    best_team_prize: lt.best_team_prize ?? 30,
+    side_bet: lt.side_bet ?? 5,
   }))
 
   return (

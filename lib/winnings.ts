@@ -4,17 +4,23 @@ export interface ScoredTeam {
   picks: Array<{ total_strokes: number | null }>
 }
 
-/**
- * Prize structure:
- *   -$20 buy-in per team
- *   +$50 → team that owns the best individual player
- *   +$30 → team with the lowest combined score
- *   +$5  → best team (side-bet from worst team)
- *   -$5  → worst team (paid to best team)
- */
-export function computeWinnings(standings: ScoredTeam[]): Map<string, number> {
+export interface PayoutConfig {
+  buyIn: number
+  bestPlayerPrize: number
+  bestTeamPrize: number
+  sideBet: number
+}
+
+export const DEFAULT_PAYOUT: PayoutConfig = {
+  buyIn: 20,
+  bestPlayerPrize: 50,
+  bestTeamPrize: 30,
+  sideBet: 5,
+}
+
+export function computeWinnings(standings: ScoredTeam[], config: PayoutConfig = DEFAULT_PAYOUT): Map<string, number> {
   const w = new Map<string, number>()
-  for (const s of standings) w.set(s.user_id, -20)
+  for (const s of standings) w.set(s.user_id, -config.buyIn)
 
   const scored = standings.filter((s) => s.total_strokes !== null)
   if (scored.length === 0) return w
@@ -24,11 +30,11 @@ export function computeWinnings(standings: ScoredTeam[]): Map<string, number> {
   const bestTeams = scored.filter((s) => s.total_strokes === bestTeamScore)
   const worstTeams = scored.filter((s) => s.total_strokes === worstTeamScore)
 
-  for (const t of bestTeams) w.set(t.user_id, w.get(t.user_id)! + 30 / bestTeams.length)
+  for (const t of bestTeams) w.set(t.user_id, w.get(t.user_id)! + config.bestTeamPrize / bestTeams.length)
 
   if (worstTeamScore !== bestTeamScore) {
-    for (const t of worstTeams) w.set(t.user_id, w.get(t.user_id)! - 5 / worstTeams.length)
-    for (const t of bestTeams)  w.set(t.user_id, w.get(t.user_id)! + 5 / bestTeams.length)
+    for (const t of worstTeams) w.set(t.user_id, w.get(t.user_id)! - config.sideBet / worstTeams.length)
+    for (const t of bestTeams)  w.set(t.user_id, w.get(t.user_id)! + config.sideBet / bestTeams.length)
   }
 
   const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)
@@ -39,7 +45,7 @@ export function computeWinnings(standings: ScoredTeam[]): Map<string, number> {
         .filter((s) => s.picks.some((p) => p.total_strokes === bestPlayerScore))
         .map((s) => s.user_id)
     )
-    for (const uid of ownerIds) w.set(uid, (w.get(uid) ?? 0) + 50 / ownerIds.size)
+    for (const uid of ownerIds) w.set(uid, (w.get(uid) ?? 0) + config.bestPlayerPrize / ownerIds.size)
   }
 
   return w

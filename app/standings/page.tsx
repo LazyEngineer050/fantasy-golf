@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { computeWinnings, DEFAULT_PAYOUT, type PayoutConfig } from '@/lib/winnings'
 
 function fmtMoney(n: number) {
   const abs = Math.abs(n)
@@ -18,41 +19,6 @@ function fmtDate(dateStr: string) {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
-function computeLeagueWinnings(
-  teamScores: Array<{ user_id: string; total_strokes: number | null }>,
-  picks: Array<{ user_id: string; player_id: string }>,
-  playerScoreMap: Map<string, number | null>,
-): Map<string, number> {
-  const w = new Map<string, number>()
-  for (const ts of teamScores) w.set(ts.user_id, -20)
-
-  const scored = teamScores.filter((s) => s.total_strokes !== null)
-  if (scored.length === 0) return w
-
-  const bestTeamScore  = Math.min(...scored.map((s) => s.total_strokes!))
-  const worstTeamScore = Math.max(...scored.map((s) => s.total_strokes!))
-  const bestTeams  = scored.filter((s) => s.total_strokes === bestTeamScore)
-  const worstTeams = scored.filter((s) => s.total_strokes === worstTeamScore)
-
-  for (const t of bestTeams) w.set(t.user_id, w.get(t.user_id)! + 30 / bestTeams.length)
-
-  if (worstTeamScore !== bestTeamScore) {
-    for (const t of worstTeams) w.set(t.user_id, w.get(t.user_id)! - 5 / worstTeams.length)
-    for (const t of bestTeams)  w.set(t.user_id, w.get(t.user_id)! + 5 / bestTeams.length)
-  }
-
-  const scoredPicks = picks.flatMap((p) => {
-    const score = playerScoreMap.get(p.player_id)
-    return score !== null && score !== undefined ? [{ user_id: p.user_id, score }] : []
-  })
-  if (scoredPicks.length > 0) {
-    const best = Math.min(...scoredPicks.map((p) => p.score))
-    const owners = new Set(scoredPicks.filter((p) => p.score === best).map((p) => p.user_id))
-    for (const uid of owners) w.set(uid, (w.get(uid) ?? 0) + 50 / owners.size)
-  }
-
-  return w
-}
 
 export default async function StandingsPage() {
   const supabase = await createSupabaseServerClient()
@@ -60,7 +26,7 @@ export default async function StandingsPage() {
   // Load all completed + live league_tournaments with tournament info, newest first
   const { data: ltRaw } = await supabase
     .from('league_tournaments')
-    .select('id, status, tournament_id, league_season_id, tournaments(id, name, start_date, end_date)')
+    .select('id, status, tournament_id, league_season_id, buy_in, best_player_prize, best_team_prize, side_bet, tournaments(id, name, start_date, end_date)')
     .in('status', ['completed', 'live'])
 
   type LTRow = {
@@ -68,6 +34,10 @@ export default async function StandingsPage() {
     status: 'completed' | 'live'
     tournament_id: string
     league_season_id: string
+    buy_in: number
+    best_player_prize: number
+    best_team_prize: number
+    side_bet: number
     tournaments: { id: string; name: string; start_date: string; end_date: string } | null
   }
 
@@ -145,7 +115,23 @@ export default async function StandingsPage() {
     const ltTeamScores = teamScores.filter((ts) => ts.league_tournament_id === lt.id)
     const ltPicks      = picks.filter((p) => p.league_tournament_id === lt.id)
     const psMap        = psMapByLT.get(lt.id) ?? new Map()
-    winningsByLT.set(lt.id, computeLeagueWinnings(ltTeamScores, ltPicks, psMap))
+
+    const payoutConfig: PayoutConfig = {
+      buyIn: lt.buy_in ?? DEFAULT_PAYOUT.buyIn,
+      bestPlayerPrize: lt.best_player_prize ?? DEFAULT_PAYOUT.bestPlayerPrize,
+      bestTeamPrize: lt.best_team_prize ?? DEFAULT_PAYOUT.bestTeamPrize,
+      sideBet: lt.side_bet ?? DEFAULT_PAYOUT.sideBet,
+    }
+
+    const scoredTeams = ltTeamScores.map((ts) => ({
+      user_id: ts.user_id,
+      total_strokes: ts.total_strokes,
+      picks: ltPicks
+        .filter((p) => p.user_id === ts.user_id)
+        .map((p) => ({ total_strokes: psMap.get(p.player_id) ?? null })),
+    }))
+
+    winningsByLT.set(lt.id, computeWinnings(scoredTeams, payoutConfig))
   }
 
   // Total winnings per user
@@ -212,12 +198,12 @@ export default async function StandingsPage() {
         </div>
 
         <div className="mt-4 bg-gray-900 rounded-xl border border-gray-800 p-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Prize Structure</p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Default Prize Structure</p>
           <div className="flex gap-6 flex-wrap text-xs text-gray-400 mb-2">
-            <span><span className="text-gray-300 font-medium">Buy-in</span> $20</span>
-            <span><span className="text-gray-300 font-medium">Best team</span> +$30</span>
-            <span><span className="text-gray-300 font-medium">Best player</span> +$50</span>
-            <span><span className="text-gray-300 font-medium">Side-bet</span> worst pays best +$5</span>
+            <span><span className="text-gray-300 font-medium">Buy-in</span> ${DEFAULT_PAYOUT.buyIn}</span>
+            <span><span className="text-gray-300 font-medium">Best team</span> +${DEFAULT_PAYOUT.bestTeamPrize}</span>
+            <span><span className="text-gray-300 font-medium">Best player</span> +${DEFAULT_PAYOUT.bestPlayerPrize}</span>
+            <span><span className="text-gray-300 font-medium">Side-bet</span> worst pays best +${DEFAULT_PAYOUT.sideBet}</span>
           </div>
           <p className="text-xs text-green-700">* In progress — projected winnings</p>
         </div>

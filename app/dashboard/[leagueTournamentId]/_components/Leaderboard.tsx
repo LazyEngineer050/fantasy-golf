@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { computeWinnings, DEFAULT_PAYOUT, type PayoutConfig } from '@/lib/winnings'
 import type { TeamStanding } from '@/lib/types'
 
 // Keep a rolling history of total_strokes snapshots (capped at 10 refreshes).
@@ -15,6 +16,7 @@ interface Props {
   leagueStatus: 'drafting' | 'live' | 'completed'
   standings: TeamStanding[]
   currentUserId: string | null
+  payoutConfig: PayoutConfig
 }
 
 function fmtScore(n: number | null): string {
@@ -30,54 +32,13 @@ function scoreClass(n: number | null): string {
   return 'text-gray-300'
 }
 
-// Prize structure (hardcoded for now):
-//   $20 buy-in per team
-//   $50 → team whose best individual player leads the tournament
-//   $30 → team with the lowest combined score  (+$5 side-bet from worst team)
-//   -$5 → team with the highest combined score  (paid to best team)
-function computeWinnings(standings: TeamStanding[]): Map<string, number> {
-  const w = new Map<string, number>()
-  for (const s of standings) w.set(s.user_id, -20)
-
-  const scored = standings.filter((s) => s.total_strokes !== null)
-  if (scored.length === 0) return w
-
-  // Best / worst team by combined score
-  const bestTeamScore = Math.min(...scored.map((s) => s.total_strokes!))
-  const worstTeamScore = Math.max(...scored.map((s) => s.total_strokes!))
-  const bestTeams = scored.filter((s) => s.total_strokes === bestTeamScore)
-  const worstTeams = scored.filter((s) => s.total_strokes === worstTeamScore)
-
-  // $30 split among tied best teams
-  for (const t of bestTeams) w.set(t.user_id, w.get(t.user_id)! + 30 / bestTeams.length)
-
-  // $5 side-bet: worst pays best (skip if same teams, e.g. only 1 team)
-  if (worstTeamScore !== bestTeamScore) {
-    for (const t of worstTeams) w.set(t.user_id, w.get(t.user_id)! - 5 / worstTeams.length)
-    for (const t of bestTeams)  w.set(t.user_id, w.get(t.user_id)! + 5 / bestTeams.length)
-  }
-
-  // $50 → team that owns the best individual player
-  const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)
-  if (allPicks.length > 0) {
-    const bestPlayerScore = Math.min(...allPicks.map((p) => p.total_strokes!))
-    const ownerIds = new Set(
-      standings
-        .filter((s) => s.picks.some((p) => p.total_strokes === bestPlayerScore))
-        .map((s) => s.user_id)
-    )
-    for (const uid of ownerIds) w.set(uid, (w.get(uid) ?? 0) + 50 / ownerIds.size)
-  }
-
-  return w
-}
-
 export default function Leaderboard({
   leagueTournamentId,
   tournamentName,
   leagueStatus,
   standings: initialStandings,
   currentUserId,
+  payoutConfig,
 }: Props) {
   const [standings, setStandings] = useState(initialStandings)
   const [status, setStatus] = useState(leagueStatus)
@@ -313,7 +274,7 @@ export default function Leaderboard({
         ) : (
           <div className="space-y-6">
             {(() => {
-              const winnings = computeWinnings(standings)
+              const winnings = computeWinnings(standings, payoutConfig)
 
               // Overall tournament leader
               const allPicks = standings.flatMap((s) => s.picks).filter((p) => p.total_strokes !== null)

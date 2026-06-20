@@ -44,3 +44,25 @@ export async function setLeagueTournamentStatus(leagueTournamentId: string, stat
   revalidatePath('/')
   return { ok: true }
 }
+
+export async function updatePayoutConfig(leagueTournamentId: string, formData: FormData) {
+  const buyIn          = parseInt(formData.get('buy_in') as string, 10)
+  const bestPlayerPrize = parseInt(formData.get('best_player_prize') as string, 10)
+  const bestTeamPrize  = parseInt(formData.get('best_team_prize') as string, 10)
+  const sideBet        = parseInt(formData.get('side_bet') as string, 10)
+
+  if ([buyIn, bestPlayerPrize, bestTeamPrize, sideBet].some(isNaN)) return { error: 'All values must be numbers' }
+  if ([buyIn, bestPlayerPrize, bestTeamPrize, sideBet].some((v) => v < 0)) return { error: 'Values cannot be negative' }
+
+  const supabase = await createSupabaseServerClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from('league_tournaments')
+    .update({ buy_in: buyIn, best_player_prize: bestPlayerPrize, best_team_prize: bestTeamPrize, side_bet: sideBet })
+    .eq('id', leagueTournamentId)
+
+  if (error) return { error: error.message }
+  revalidatePath('/admin')
+  revalidatePath('/standings')
+  return { ok: true }
+}

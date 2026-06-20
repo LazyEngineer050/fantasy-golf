@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { createTournament, setLeagueTournamentStatus } from '@/app/actions/admin'
+import { createTournament, setLeagueTournamentStatus, updatePayoutConfig } from '@/app/actions/admin'
 
 interface Tournament {
   id: string
@@ -17,6 +17,10 @@ interface LeagueTournamentRow {
   tournament_name: string
   league_name: string
   season_year: number | null
+  buy_in: number
+  best_player_prize: number
+  best_team_prize: number
+  side_bet: number
 }
 
 interface Props {
@@ -92,7 +96,9 @@ function CreateTournamentForm() {
 }
 
 function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
-  const { isPending, error, run } = useAction()
+  const statusAction = useAction()
+  const payoutAction = useAction()
+  const [showPayout, setShowPayout] = useState(false)
 
   const statusColors: Record<string, string> = {
     drafting: 'bg-yellow-900 text-yellow-300',
@@ -118,8 +124,8 @@ function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
         {(['drafting', 'live', 'completed'] as const).map((s) => (
           <button
             key={s}
-            disabled={isPending || lt.status === s}
-            onClick={() => run(() => setLeagueTournamentStatus(lt.id, s))}
+            disabled={statusAction.isPending || lt.status === s}
+            onClick={() => statusAction.run(() => setLeagueTournamentStatus(lt.id, s))}
             className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-50 ${
               lt.status === s
                 ? 'bg-gray-700 text-gray-300 cursor-default'
@@ -129,8 +135,41 @@ function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
             {s}
           </button>
         ))}
+        <button
+          onClick={() => setShowPayout((v) => !v)}
+          className="px-3 py-1.5 text-xs rounded-lg font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+        >
+          {showPayout ? 'Hide Payout' : 'Edit Payout'}
+        </button>
       </div>
-      {error && <p className="text-red-400 text-xs">{error}</p>}
+      {statusAction.error && <p className="text-red-400 text-xs">{statusAction.error}</p>}
+
+      {showPayout && (
+        <form
+          action={(fd) => payoutAction.run(() => updatePayoutConfig(lt.id, fd), () => setShowPayout(false))}
+          className="border-t border-gray-800 pt-3 space-y-3"
+        >
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Payout Config</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Buy-in ($)">
+              <input name="buy_in" type="number" min="0" required defaultValue={lt.buy_in} className={inputCls} />
+            </Field>
+            <Field label="Best Team Prize ($)">
+              <input name="best_team_prize" type="number" min="0" required defaultValue={lt.best_team_prize} className={inputCls} />
+            </Field>
+            <Field label="Best Player Prize ($)">
+              <input name="best_player_prize" type="number" min="0" required defaultValue={lt.best_player_prize} className={inputCls} />
+            </Field>
+            <Field label="Side-bet ($)">
+              <input name="side_bet" type="number" min="0" required defaultValue={lt.side_bet} className={inputCls} />
+            </Field>
+          </div>
+          {payoutAction.error && <p className="text-red-400 text-xs">{payoutAction.error}</p>}
+          <button type="submit" disabled={payoutAction.isPending} className={btnCls}>
+            {payoutAction.isPending ? 'Saving…' : 'Save Payout'}
+          </button>
+        </form>
+      )}
     </div>
   )
 }
