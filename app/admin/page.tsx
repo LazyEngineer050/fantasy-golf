@@ -52,8 +52,7 @@ export default async function AdminPage() {
         <p className="text-gray-400 text-sm mt-1">System admin: manage tournaments</p>
       </div>
       <div className="max-w-3xl mx-auto p-6">
-        <p className="text-xs text-gray-600 mb-4">lt rows: {ltRows.length} · lt err: {ltResult.error?.message ?? 'none'}</p>
-        <AdminPanel tournaments={tournaments} leagueTournaments={leagueTournaments} />
+<AdminPanel tournaments={tournaments} leagueTournaments={leagueTournaments} />
       </div>
     </div>
   )
