@@ -318,10 +318,12 @@ export default function Leaderboard({
                   (p.today_strokes! > 0 && fieldAvgToday < 0)
                 )
                 const worstScore = Math.max(...turdPicks.map((p) => p.today_strokes!))
-                const worstPlayers = turdPicks.filter((p) => p.today_strokes! === worstScore)
-                const turdIds = new Set(threshold.map((p) => p.player_id))
-                for (const wp of worstPlayers) {
-                  if (!turdIds.has(wp.player_id)) threshold.push(wp)
+                if (worstScore > 0) {
+                  const worstPlayers = turdPicks.filter((p) => p.today_strokes! === worstScore)
+                  const turdIds = new Set(threshold.map((p) => p.player_id))
+                  for (const wp of worstPlayers) {
+                    if (!turdIds.has(wp.player_id)) threshold.push(wp)
+                  }
                 }
                 return threshold
               })()
