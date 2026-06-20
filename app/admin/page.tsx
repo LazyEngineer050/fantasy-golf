@@ -6,22 +6,13 @@ export default async function AdminPage() {
 
   const [tournamentsResult, ltResult, payoutResult] = await Promise.all([
     supabase.from('tournaments').select('id, name, espn_event_id, start_date, end_date').order('start_date', { ascending: false }),
-    supabase
-      .from('league_tournaments')
-      .select('id, status, tournament_id, league_season_id, tournaments(name), league_seasons(league_id, leagues(name))')
-      .order('created_at', { ascending: false }),
-    // Separate query for payout columns — isolated so a schema-cache miss never hides league tournament cards
+    supabase.from('league_tournaments').select('id, status'),
     supabase.from('league_tournaments').select('id, buy_in, best_player_prize, best_team_prize, side_bet'),
   ])
 
   type Tournament = { id: string; name: string; espn_event_id: string | null; start_date: string; end_date: string }
 
-  type LTRow = {
-    id: string
-    status: 'drafting' | 'live' | 'completed'
-    tournaments: { name: string } | null
-    league_seasons: { leagues: { name: string } | null } | null
-  }
+  type LTRow = { id: string; status: 'drafting' | 'live' | 'completed' }
 
   type PayoutRow = { id: string; buy_in: number; best_player_prize: number; best_team_prize: number; side_bet: number }
 
@@ -36,8 +27,8 @@ export default async function AdminPage() {
     return {
       id: lt.id,
       status: lt.status,
-      tournament_name: lt.tournaments?.name ?? 'Unknown',
-      league_name: lt.league_seasons?.leagues?.name ?? 'Unknown',
+      tournament_name: 'Tournament',
+      league_name: 'League',
       season_year: null,
       buy_in: payout?.buy_in ?? 20,
       best_player_prize: payout?.best_player_prize ?? 50,
@@ -53,6 +44,11 @@ export default async function AdminPage() {
         <p className="text-gray-400 text-sm mt-1">System admin: manage tournaments</p>
       </div>
       <div className="max-w-3xl mx-auto p-6">
+        <div className="mb-4 bg-gray-800 rounded-lg p-3 text-xs text-gray-400 font-mono space-y-1">
+          <p>league_tournaments rows: {ltRows.length}</p>
+          <p>ltResult.error: {ltResult.error ? JSON.stringify(ltResult.error) : 'none'}</p>
+          <p>payoutResult.error: {payoutResult.error ? JSON.stringify(payoutResult.error) : 'none'}</p>
+        </div>
         <AdminPanel tournaments={tournaments} leagueTournaments={leagueTournaments} />
       </div>
     </div>
