@@ -6,7 +6,7 @@ export default async function AdminPage() {
 
   const [tournamentsResult, ltResult, payoutResult, leagueSeasonsResult, leaguesResult] = await Promise.all([
     supabase.from('tournaments').select('id, name, espn_event_id, start_date, end_date').order('start_date', { ascending: false }),
-    supabase.from('league_tournaments').select('id, status, tournament_id, league_season_id').order('created_at', { ascending: false }),
+    supabase.from('league_tournaments').select('id, status, tournament_id, league_season_id'),
     supabase.from('league_tournaments').select('id, buy_in, best_player_prize, best_team_prize, side_bet'),
     supabase.from('league_seasons').select('id, league_id'),
     supabase.from('leagues').select('id, name'),
@@ -52,6 +52,7 @@ export default async function AdminPage() {
         <p className="text-gray-400 text-sm mt-1">System admin: manage tournaments</p>
       </div>
       <div className="max-w-3xl mx-auto p-6">
+        <p className="text-xs text-gray-600 mb-4">lt rows: {ltRows.length} · lt err: {ltResult.error?.message ?? 'none'}</p>
         <AdminPanel tournaments={tournaments} leagueTournaments={leagueTournaments} />
       </div>
     </div>
