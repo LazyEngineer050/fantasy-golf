@@ -436,7 +436,7 @@ export default function Leaderboard({
                                         {pick.player_name}
                                       </span>
                                       {isOverallLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
-                                      {dumpsterFirePlayerIds.has(pick.player_id) && <img src="/dumpster-fire.svg" title="Dumpster fire" className="inline-block h-5 w-5 align-middle" />}
+                                      {dumpsterFirePlayerIds.has(pick.player_id) && <img src="/dumpster-fire.svg" title="Dumpster fire" className="inline-block align-middle" style={{ height: '2rem', width: '2rem' }} />}
                                       {turdSizeMap.has(pick.player_id) && <span title="Over par today" style={{ fontSize: turdSizeMap.get(pick.player_id) }} className="leading-none">💩</span>}
                                     </div>
                                   </td>
@@ -534,7 +534,7 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
                 <div className="flex items-center gap-1.5">
                   <span className={`font-medium ${isLeader ? 'text-yellow-300' : 'text-gray-100'}`}>{p.player_name}</span>
                   {isLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
-                  {dumpsterFirePlayerIds.has(p.player_id) && <img src="/dumpster-fire.svg" title="Dumpster fire" className="inline-block h-5 w-5 align-middle" />}
+                  {dumpsterFirePlayerIds.has(p.player_id) && <img src="/dumpster-fire.svg" title="Dumpster fire" className="inline-block align-middle" style={{ height: '2rem', width: '2rem' }} />}
                 </div>
               </td>
               <td className="px-4 py-2.5 text-gray-300 whitespace-nowrap">{p.owner}</td>
