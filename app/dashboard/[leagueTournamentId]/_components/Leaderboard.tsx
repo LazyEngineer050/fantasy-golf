@@ -311,7 +311,6 @@ export default function Leaderboard({
               // Turd sizing: compute globally so sizes are relative across all players
               // A player is a turd if: 3+ above field avg, OR field is under par and they're over,
               // OR they are the single worst player on the day among drafted players.
-              console.log('[turds]', { allPicksCount: allPicks.length, anyStartedToday, turdPicksCount: turdPicks.length, fieldAvgToday, sample: turdPicks.slice(0,3).map(p => ({ name: p.player_name, thru: p.thru, today: p.today_strokes, total: p.total_strokes })) })
               const allTurdPicks = (() => {
                 if (fieldAvgToday === null || turdPicks.length === 0) return []
                 const threshold = turdPicks.filter((p) =>
