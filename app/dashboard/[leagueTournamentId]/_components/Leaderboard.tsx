@@ -309,10 +309,22 @@ export default function Leaderboard({
                 : null
 
               // Turd sizing: compute globally so sizes are relative across all players
-              const allTurdPicks = fieldAvgToday === null ? [] : turdPicks.filter((p) =>
-                p.today_strokes! >= fieldAvgToday + 3 ||
-                (p.today_strokes! > 0 && fieldAvgToday < 0)
-              )
+              // A player is a turd if: 3+ above field avg, OR field is under par and they're over,
+              // OR they are the single worst player on the day among drafted players.
+              const allTurdPicks = (() => {
+                if (fieldAvgToday === null || turdPicks.length === 0) return []
+                const threshold = turdPicks.filter((p) =>
+                  p.today_strokes! >= fieldAvgToday + 3 ||
+                  (p.today_strokes! > 0 && fieldAvgToday < 0)
+                )
+                const worstScore = Math.max(...turdPicks.map((p) => p.today_strokes!))
+                const worstPlayers = turdPicks.filter((p) => p.today_strokes! === worstScore)
+                const turdIds = new Set(threshold.map((p) => p.player_id))
+                for (const wp of worstPlayers) {
+                  if (!turdIds.has(wp.player_id)) threshold.push(wp)
+                }
+                return threshold
+              })()
               const turdScores = allTurdPicks.map((p) => p.today_strokes!)
               const minTurd = turdScores.length > 0 ? Math.min(...turdScores) : 0
               const maxTurd = turdScores.length > 0 ? Math.max(...turdScores) : 0
