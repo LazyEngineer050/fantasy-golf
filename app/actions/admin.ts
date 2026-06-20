@@ -32,6 +32,25 @@ export async function createTournament(formData: FormData) {
   return { ok: true }
 }
 
+export async function updateTournament(tournamentId: string, formData: FormData) {
+  const name       = (formData.get('name') as string).trim()
+  const espnEventId = (formData.get('espnEventId') as string).trim() || null
+  const startDate  = formData.get('startDate') as string
+  const endDate    = formData.get('endDate') as string
+
+  if (!name || !startDate || !endDate) return { error: 'Name, start date, and end date are required' }
+
+  const supabase = await createSupabaseServerClient()
+  const { error } = await supabase
+    .from('tournaments')
+    .update({ name, espn_event_id: espnEventId, start_date: startDate, end_date: endDate })
+    .eq('id', tournamentId)
+
+  if (error) return { error: error.message }
+  revalidatePath('/admin')
+  return { ok: true }
+}
+
 export async function setLeagueTournamentStatus(leagueTournamentId: string, status: 'drafting' | 'live' | 'completed') {
   const supabase = await createSupabaseServerClient()
   const { error } = await supabase

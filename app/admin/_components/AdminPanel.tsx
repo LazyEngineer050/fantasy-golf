@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { createTournament, setLeagueTournamentStatus, updatePayoutConfig } from '@/app/actions/admin'
+import { createTournament, updateTournament, setLeagueTournamentStatus, updatePayoutConfig } from '@/app/actions/admin'
 
 interface Tournament {
   id: string
@@ -95,6 +95,53 @@ function CreateTournamentForm() {
   )
 }
 
+function TournamentCard({ t }: { t: Tournament }) {
+  const { isPending, error, run } = useAction()
+  const [editing, setEditing] = useState(false)
+
+  return (
+    <div className="bg-gray-800 rounded-lg px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-100">{t.name}</p>
+          <p className="text-xs text-gray-500">{t.start_date} → {t.end_date}{t.espn_event_id ? ` · ESPN ${t.espn_event_id}` : ' · no ESPN ID'}</p>
+        </div>
+        <button
+          onClick={() => setEditing((v) => !v)}
+          className="px-2.5 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium transition-colors"
+        >
+          {editing ? 'Cancel' : 'Edit'}
+        </button>
+      </div>
+      {editing && (
+        <form
+          action={(fd) => run(() => updateTournament(t.id, fd), () => setEditing(false))}
+          className="space-y-3 border-t border-gray-700 pt-3"
+        >
+          <Field label="Name">
+            <input name="name" required defaultValue={t.name} className={inputCls} />
+          </Field>
+          <Field label="ESPN Event ID">
+            <input name="espnEventId" defaultValue={t.espn_event_id ?? ''} placeholder="401811952" className={inputCls} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Start Date">
+              <input name="startDate" type="date" required defaultValue={t.start_date} className={inputCls} />
+            </Field>
+            <Field label="End Date">
+              <input name="endDate" type="date" required defaultValue={t.end_date} className={inputCls} />
+            </Field>
+          </div>
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+          <button type="submit" disabled={isPending} className={btnCls}>
+            {isPending ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      )}
+    </div>
+  )
+}
+
 function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
   const statusAction = useAction()
   const payoutAction = useAction()
@@ -183,12 +230,7 @@ export default function AdminPanel({ tournaments, leagueTournaments }: Props) {
         <Section title="Tournaments">
           <div className="space-y-2">
             {tournaments.map((t) => (
-              <div key={t.id} className="flex items-center justify-between py-2 px-3 bg-gray-800 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-gray-100">{t.name}</p>
-                  <p className="text-xs text-gray-500">{t.start_date} → {t.end_date}{t.espn_event_id ? ` · ESPN ${t.espn_event_id}` : ' · no ESPN ID'}</p>
-                </div>
-              </div>
+              <TournamentCard key={t.id} t={t} />
             ))}
           </div>
         </Section>
