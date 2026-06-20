@@ -6,7 +6,7 @@ export default async function AdminPage() {
 
   const [tournamentsResult, ltResult, payoutResult] = await Promise.all([
     supabase.from('tournaments').select('id, name, espn_event_id, start_date, end_date').order('start_date', { ascending: false }),
-    supabase.from('league_tournaments').select('id, status, tournaments(name), league_seasons(leagues(name))').order('created_at', { ascending: false }),
+    supabase.from('league_tournaments').select('id, status, tournament_id, league_seasons(leagues(name))').order('created_at', { ascending: false }),
     supabase.from('league_tournaments').select('id, buy_in, best_player_prize, best_team_prize, side_bet'),
   ])
 
@@ -14,7 +14,7 @@ export default async function AdminPage() {
   type LTRow = {
     id: string
     status: 'drafting' | 'live' | 'completed'
-    tournaments: { name: string } | null
+    tournament_id: string
     league_seasons: { leagues: { name: string } | null } | null
   }
   type PayoutRow = { id: string; buy_in: number; best_player_prize: number; best_team_prize: number; side_bet: number }
@@ -24,13 +24,14 @@ export default async function AdminPage() {
   const payoutMap = new Map(
     ((payoutResult.data ?? []) as unknown as PayoutRow[]).map((p) => [p.id, p])
   )
+  const tournamentNameMap = new Map(tournaments.map((t) => [t.id, t.name]))
 
   const leagueTournaments = ltRows.map((lt) => {
     const payout = payoutMap.get(lt.id)
     return {
       id: lt.id,
       status: lt.status,
-      tournament_name: lt.tournaments?.name ?? 'Unknown',
+      tournament_name: tournamentNameMap.get(lt.tournament_id) ?? 'Unknown',
       league_name: lt.league_seasons?.leagues?.name ?? 'Unknown',
       season_year: null,
       buy_in: payout?.buy_in ?? 20,

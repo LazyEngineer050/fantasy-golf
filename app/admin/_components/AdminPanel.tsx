@@ -145,77 +145,82 @@ function TournamentCard({ t }: { t: Tournament }) {
 function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
   const statusAction = useAction()
   const payoutAction = useAction()
-  const [showPayout, setShowPayout] = useState(false)
+  const [editing, setEditing] = useState(false)
 
-  const statusColors: Record<string, string> = {
-    drafting: 'bg-yellow-900 text-yellow-300',
-    live: 'bg-green-900 text-green-300',
-    completed: 'bg-gray-700 text-gray-400',
+  const statusBadge: Record<string, string> = {
+    drafting: 'bg-yellow-900/50 text-yellow-300 border border-yellow-800',
+    live: 'bg-green-900/50 text-green-300 border border-green-800',
+    completed: 'bg-gray-800 text-gray-400 border border-gray-700',
   }
 
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="bg-gray-900 rounded-xl border border-gray-800">
+      <div className="flex items-center justify-between px-4 py-3">
         <div>
           <p className="font-semibold text-gray-100">{lt.tournament_name}</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {lt.league_name}{lt.season_year ? ` · ${lt.season_year}` : ''}
-          </p>
+          <p className="text-xs text-gray-500 mt-0.5">{lt.league_name}</p>
         </div>
-        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[lt.status]}`}>
-          {lt.status}
-        </span>
-      </div>
-
-      <div className="flex gap-2 flex-wrap">
-        {(['drafting', 'live', 'completed'] as const).map((s) => (
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge[lt.status]}`}>
+            {lt.status}
+          </span>
           <button
-            key={s}
-            disabled={statusAction.isPending || lt.status === s}
-            onClick={() => statusAction.run(() => setLeagueTournamentStatus(lt.id, s))}
-            className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-50 ${
-              lt.status === s
-                ? 'bg-gray-700 text-gray-300 cursor-default'
-                : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
-            }`}
+            onClick={() => setEditing((v) => !v)}
+            className="px-3 py-1 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium transition-colors"
           >
-            {s}
+            {editing ? 'Done' : 'Edit'}
           </button>
-        ))}
-        <button
-          onClick={() => setShowPayout((v) => !v)}
-          className="px-3 py-1.5 text-xs rounded-lg font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-        >
-          {showPayout ? 'Hide Payout' : 'Edit Payout'}
-        </button>
+        </div>
       </div>
-      {statusAction.error && <p className="text-red-400 text-xs">{statusAction.error}</p>}
 
-      {showPayout && (
-        <form
-          action={(fd) => payoutAction.run(() => updatePayoutConfig(lt.id, fd), () => setShowPayout(false))}
-          className="border-t border-gray-800 pt-3 space-y-3"
-        >
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Payout Config</p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Buy-in ($)">
-              <input name="buy_in" type="number" min="0" required defaultValue={lt.buy_in} className={inputCls} />
-            </Field>
-            <Field label="Best Team Prize ($)">
-              <input name="best_team_prize" type="number" min="0" required defaultValue={lt.best_team_prize} className={inputCls} />
-            </Field>
-            <Field label="Best Player Prize ($)">
-              <input name="best_player_prize" type="number" min="0" required defaultValue={lt.best_player_prize} className={inputCls} />
-            </Field>
-            <Field label="Side-bet ($)">
-              <input name="side_bet" type="number" min="0" required defaultValue={lt.side_bet} className={inputCls} />
-            </Field>
+      {editing && (
+        <div className="border-t border-gray-800 px-4 py-4 space-y-5">
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Status</p>
+            <div className="flex gap-2">
+              {(['drafting', 'live', 'completed'] as const).map((s) => (
+                <button
+                  key={s}
+                  disabled={statusAction.isPending || lt.status === s}
+                  onClick={() => statusAction.run(() => setLeagueTournamentStatus(lt.id, s))}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-50 ${
+                    lt.status === s
+                      ? 'bg-gray-700 text-gray-300 cursor-default ring-1 ring-gray-600'
+                      : 'bg-gray-800 hover:bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            {statusAction.error && <p className="text-red-400 text-xs mt-1">{statusAction.error}</p>}
           </div>
-          {payoutAction.error && <p className="text-red-400 text-xs">{payoutAction.error}</p>}
-          <button type="submit" disabled={payoutAction.isPending} className={btnCls}>
-            {payoutAction.isPending ? 'Saving…' : 'Save Payout'}
-          </button>
-        </form>
+
+          <form
+            action={(fd) => payoutAction.run(() => updatePayoutConfig(lt.id, fd))}
+            className="space-y-3"
+          >
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Buy-in ($)">
+                <input name="buy_in" type="number" min="0" required defaultValue={lt.buy_in} className={inputCls} />
+              </Field>
+              <Field label="Best Team Prize ($)">
+                <input name="best_team_prize" type="number" min="0" required defaultValue={lt.best_team_prize} className={inputCls} />
+              </Field>
+              <Field label="Best Player Prize ($)">
+                <input name="best_player_prize" type="number" min="0" required defaultValue={lt.best_player_prize} className={inputCls} />
+              </Field>
+              <Field label="Side-bet ($)">
+                <input name="side_bet" type="number" min="0" required defaultValue={lt.side_bet} className={inputCls} />
+              </Field>
+            </div>
+            {payoutAction.error && <p className="text-red-400 text-xs">{payoutAction.error}</p>}
+            <button type="submit" disabled={payoutAction.isPending} className={btnCls}>
+              {payoutAction.isPending ? 'Saving…' : 'Save Payout'}
+            </button>
+          </form>
+        </div>
       )}
     </div>
   )
