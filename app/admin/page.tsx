@@ -1,8 +1,8 @@
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase/server'
 import AdminPanel from './_components/AdminPanel'
 
 export default async function AdminPage() {
-  const supabase = await createSupabaseServerClient()
+  const supabase = createSupabaseServiceClient()
 
   const [tournamentsResult, ltResult, payoutResult] = await Promise.all([
     supabase.from('tournaments').select('id, name, espn_event_id, start_date, end_date').order('start_date', { ascending: false }),
