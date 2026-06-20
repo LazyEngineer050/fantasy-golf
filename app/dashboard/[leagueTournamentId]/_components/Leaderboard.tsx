@@ -43,6 +43,7 @@ export default function Leaderboard({
   const [standings, setStandings] = useState(initialStandings)
   const [status, setStatus] = useState(leagueStatus)
   const [view, setView] = useState<'teams' | 'players'>('teams')
+  const [, forceRender] = useState(0)
   const statusRef = useRef(leagueStatus)
   const STORAGE_KEY = `score-history-${leagueTournamentId}`
 
@@ -52,8 +53,7 @@ export default function Leaderboard({
   const movementMap = useRef<Record<string, 'up' | 'down' | null>>({})
 
   function recomputeMovement(history: Record<string, number>[], current: TeamStanding[]) {
-    if (history.length < 2) {
-      // With only one snapshot, rank by current standings position (first = fire, last = ice)
+    function assignByRank() {
       const scored = current.filter((s) => s.total_strokes != null)
       if (scored.length < 2) return
       const next: Record<string, 'up' | 'down' | null> = {}
@@ -61,6 +61,10 @@ export default function Leaderboard({
       next[scored[0].user_id] = 'up'
       next[scored[scored.length - 1].user_id] = 'down'
       movementMap.current = next
+    }
+
+    if (history.length < 2) {
+      assignByRank()
       return
     }
 
@@ -76,7 +80,8 @@ export default function Leaderboard({
       }
     }
 
-    if (deltas.length === 0) return
+    // No overlapping data (e.g. first snapshot was empty) — fall back to rank
+    if (deltas.length === 0) { assignByRank(); return }
 
     // Always assign fire to the best (most negative delta) and ice to the worst (most positive)
     deltas.sort((a, b) => a.delta - b.delta)
@@ -115,11 +120,11 @@ export default function Leaderboard({
       }
     } catch {}
     pushScoreSnapshot(initialStandings)
+    forceRender((n) => n + 1) // show fire/ice from rank-based fallback immediately
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function getMovement(userId: string): 'up' | 'down' | null {
-    if (scoreHistory.current.length < 2) return null
     return movementMap.current[userId] ?? null
   }
 
