@@ -1,0 +1,16 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    - cron: '0 12 * * 1,4'  # Mon + Thu at noon UTC
+  workflow_dispatch:          # allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping standings page
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://fantasy-golf-sooty.vercel.app/standings)
+          echo "HTTP $STATUS"
+          [ "$STATUS" -eq 200 ] || exit 1
