@@ -48,7 +48,8 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
       { onConflict: 'tournament_id,player_id' }
     )
 
-    await supabase.from('player_scores').upsert(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).from('player_scores').upsert(
       {
         tournament_id: tournamentId,
         player_id: playerId,
@@ -61,6 +62,7 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
         r2_strokes: ep.r2Strokes,
         r3_strokes: ep.r3Strokes,
         r4_strokes: ep.r4Strokes,
+        hole_scores: ep.holeScores,
         updated_at: now,
       },
       { onConflict: 'tournament_id,player_id' }

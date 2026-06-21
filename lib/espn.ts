@@ -8,6 +8,12 @@
  * Cut status is inferred via the "top 50 + ties" rule applied to 2-round totals.
  */
 
+export interface HoleScore {
+  h: number        // hole number 1-18
+  s: number        // raw strokes
+  r: number        // relative to par (-2=eagle, -1=birdie, 0=par, 1=bogey, 2=double, etc.)
+}
+
 export interface EspnPlayer {
   espnPlayerId: string
   name: string
@@ -21,6 +27,12 @@ export interface EspnPlayer {
   r2Strokes: number | null
   r3Strokes: number | null
   r4Strokes: number | null
+  holeScores: {
+    r1: HoleScore[] | null
+    r2: HoleScore[] | null
+    r3: HoleScore[] | null
+    r4: HoleScore[] | null
+  }
 }
 
 const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard'
@@ -33,7 +45,8 @@ interface RawLinescore {
   value: number
   displayValue: string
   period: number
-  linescores?: RawLinescore[]   // nested hole-by-hole data when in progress
+  scoreType?: { displayValue?: string }   // hole-level only: "-2", "-1", "E", "+1", etc.
+  linescores?: RawLinescore[]             // nested hole-by-hole data
   statistics?: {
     categories?: Array<{
       stats?: Array<{ value?: number; displayValue?: string }>
@@ -81,6 +94,16 @@ export function extractTeeTime(linescore: RawLinescore | undefined): string | nu
 }
 
 export type { RawLinescore, RawCompetitor }
+
+export function extractHoleScores(roundLs: RawLinescore | undefined): HoleScore[] | null {
+  const holes = roundLs?.linescores
+  if (!holes || holes.length === 0) return null
+  return holes.map((h) => ({
+    h: h.period,
+    s: h.value,
+    r: parseRelPar(h.scoreType?.displayValue as string | undefined) ?? 0,
+  })).sort((a, b) => a.h - b.h)
+}
 
 // Returns true if a player has confirmed they made the cut:
 // either they have R3/R4 score data, or they have an R3 tee time scheduled.
@@ -224,6 +247,12 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
       r2Strokes: r2 ? parseRelPar(r2.displayValue) : null,
       r3Strokes: r3 ? parseRelPar(r3.displayValue) : null,
       r4Strokes: r4 ? parseRelPar(r4.displayValue) : null,
+      holeScores: {
+        r1: extractHoleScores(r1),
+        r2: extractHoleScores(r2),
+        r3: extractHoleScores(r3),
+        r4: extractHoleScores(r4),
+      },
     }
   })
 }

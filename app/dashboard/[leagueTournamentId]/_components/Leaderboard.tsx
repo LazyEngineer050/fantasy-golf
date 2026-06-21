@@ -12,11 +12,165 @@ const HISTORY_CAP = 10
 
 interface Props {
   leagueTournamentId: string
+  tournamentId: string
   tournamentName: string
   leagueStatus: 'drafting' | 'live' | 'completed'
   standings: TeamStanding[]
   currentUserId: string | null
   payoutConfig: PayoutConfig
+}
+
+// ─── Player Card Modal ─────────────────────────────────────────────────────────
+
+interface RoundStats {
+  label: string
+  score: number | null
+  holes: { h: number; s: number; r: number }[]
+  eagles: number
+  birdies: number
+  pars: number
+  bogeys: number
+  doubles: number
+  worse: number
+}
+
+interface PlayerCardData {
+  total_strokes: number | null
+  today_strokes: number | null
+  thru: string | null
+  position: string | null
+  tee_time: string | null
+  rounds: RoundStats[]
+}
+
+function ScorePill({ n, label }: { n: number; label: string }) {
+  if (n === 0) return null
+  const colours: Record<string, string> = {
+    eagle:  'bg-yellow-900/60 text-yellow-300',
+    birdie: 'bg-red-900/60 text-red-300',
+    par:    'bg-gray-800 text-gray-400',
+    bogey:  'bg-blue-900/60 text-blue-300',
+    double: 'bg-blue-900/80 text-blue-200 font-bold',
+    worse:  'bg-purple-900/80 text-purple-200 font-bold',
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${colours[label] ?? 'bg-gray-800 text-gray-400'}`}>
+      <span>{n}</span>
+      <span className="capitalize">{label}{n !== 1 ? 's' : ''}</span>
+    </span>
+  )
+}
+
+function PlayerCardModal({ playerName, tournamentId, playerId, onClose }: {
+  playerName: string
+  tournamentId: string
+  playerId: string
+  onClose: () => void
+}) {
+  const [data, setData] = useState<PlayerCardData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/player-card?playerId=${playerId}&tournamentId=${tournamentId}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false) })
+      .catch(() => { setError('Failed to load'); setLoading(false) })
+  }, [playerId, tournamentId])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <div>
+            <h3 className="font-bold text-gray-100 text-lg">{playerName}</h3>
+            {data && (
+              <p className="text-sm text-gray-400 mt-0.5">
+                {data.position ? `Position ${data.position}` : ''}
+                {data.position && data.total_strokes !== null ? ' · ' : ''}
+                {data.total_strokes !== null ? <span className={scoreClass(data.total_strokes)}>{fmtScore(data.total_strokes)} total</span> : ''}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-200 text-xl leading-none px-1">✕</button>
+        </div>
+
+        <div className="px-5 py-4">
+          {loading && <p className="text-gray-500 text-sm text-center py-6">Loading…</p>}
+          {error && <p className="text-red-400 text-sm text-center py-6">{error}</p>}
+          {data && !loading && (
+            <div className="space-y-4">
+              {data.tee_time && !data.thru && (
+                <p className="text-sm text-gray-400">Tee time: <span className="text-gray-200">{data.tee_time}</span></p>
+              )}
+              {data.thru && (
+                <p className="text-sm text-gray-400">
+                  Today: <span className={`font-semibold ${scoreClass(data.today_strokes)}`}>{fmtScore(data.today_strokes)}</span>
+                  <span className="mx-1 text-gray-600">·</span>
+                  Thru <span className="text-gray-200">{data.thru}</span>
+                </p>
+              )}
+
+              {data.rounds.length === 0 && (
+                <p className="text-gray-500 text-sm text-center py-2">No round data yet.</p>
+              )}
+
+              {data.rounds.map((r) => (
+                <div key={r.label} className="bg-gray-800/60 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{r.label}</span>
+                    <span className={`text-sm font-bold ${scoreClass(r.score)}`}>{fmtScore(r.score)}</span>
+                  </div>
+                  {r.holes.length > 0 && (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        <ScorePill n={r.eagles} label="eagle" />
+                        <ScorePill n={r.birdies} label="birdie" />
+                        <ScorePill n={r.pars} label="par" />
+                        <ScorePill n={r.bogeys} label="bogey" />
+                        <ScorePill n={r.doubles} label="double" />
+                        <ScorePill n={r.worse} label="worse" />
+                      </div>
+                      <div className="grid grid-cols-9 gap-px mt-1">
+                        {r.holes.slice(0, 9).map((h) => (
+                          <div key={h.h} className="text-center">
+                            <div className="text-[9px] text-gray-600">{h.h}</div>
+                            <div className={`text-xs font-medium rounded ${
+                              h.r <= -2 ? 'text-yellow-300' :
+                              h.r === -1 ? 'text-red-400' :
+                              h.r === 0  ? 'text-gray-400' :
+                              h.r === 1  ? 'text-blue-400' :
+                                           'text-blue-200 font-bold'
+                            }`}>{h.s}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {r.holes.length > 9 && (
+                        <div className="grid grid-cols-9 gap-px">
+                          {r.holes.slice(9, 18).map((h) => (
+                            <div key={h.h} className="text-center">
+                              <div className="text-[9px] text-gray-600">{h.h}</div>
+                              <div className={`text-xs font-medium rounded ${
+                                h.r <= -2 ? 'text-yellow-300' :
+                                h.r === -1 ? 'text-red-400' :
+                                h.r === 0  ? 'text-gray-400' :
+                                h.r === 1  ? 'text-blue-400' :
+                                             'text-blue-200 font-bold'
+                              }`}>{h.s}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function fmtScore(n: number | null): string {
@@ -34,6 +188,7 @@ function scoreClass(n: number | null): string {
 
 export default function Leaderboard({
   leagueTournamentId,
+  tournamentId,
   tournamentName,
   leagueStatus,
   standings: initialStandings,
@@ -44,6 +199,7 @@ export default function Leaderboard({
   const [status, setStatus] = useState(leagueStatus)
   const [view, setView] = useState<'teams' | 'players'>('teams')
   const [, forceRender] = useState(0)
+  const [selectedPlayer, setSelectedPlayer] = useState<{ id: string; name: string } | null>(null)
   const statusRef = useRef(leagueStatus)
   const STORAGE_KEY = `score-history-${leagueTournamentId}`
 
@@ -270,8 +426,17 @@ export default function Leaderboard({
           </div>
         )}
 
+        {selectedPlayer && (
+          <PlayerCardModal
+            playerName={selectedPlayer.name}
+            tournamentId={tournamentId}
+            playerId={selectedPlayer.id}
+            onClose={() => setSelectedPlayer(null)}
+          />
+        )}
+
         {view === 'players' ? (
-          <PlayerBoard standings={standings} />
+          <PlayerBoard standings={standings} onSelectPlayer={setSelectedPlayer} />
         ) : standings.length === 0 ? (
           <p className="text-center text-gray-500 py-12">
             No standings yet — scores will appear once the tournament is live.
@@ -432,9 +597,12 @@ export default function Leaderboard({
                                   {/* Player name then icons */}
                                   <td className="px-4 py-2.5 whitespace-nowrap">
                                     <div className="flex items-center gap-1.5">
-                                      <span className={`font-medium ${isOverallLeader ? 'text-yellow-300' : 'text-gray-100'}`}>
+                                      <button
+                                        onClick={() => setSelectedPlayer({ id: pick.player_id, name: pick.player_name })}
+                                        className={`font-medium hover:underline text-left ${isOverallLeader ? 'text-yellow-300' : 'text-gray-100'}`}
+                                      >
                                         {pick.player_name}
-                                      </span>
+                                      </button>
                                       {isOverallLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
                                       {dumpsterFirePlayerIds.has(pick.player_id) && <img src="/dumpster-fire.svg" title="Dumpster fire" className="inline-block align-middle" style={{ height: '2rem', width: '2rem' }} />}
                                       {turdSizeMap.has(pick.player_id) && <span title="Over par today" style={{ fontSize: turdSizeMap.get(pick.player_id) }} className="leading-none">💩</span>}
@@ -490,7 +658,7 @@ export default function Leaderboard({
 
 // ─── Player Board ─────────────────────────────────────────────────────────────
 
-function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
+function PlayerBoard({ standings, onSelectPlayer }: { standings: TeamStanding[]; onSelectPlayer: (p: { id: string; name: string }) => void }) {
   const allPicks = standings.flatMap((s) =>
     s.picks.map((p) => ({ ...p, owner: s.display_name }))
   )
@@ -532,7 +700,12 @@ function PlayerBoard({ standings }: { standings: TeamStanding[] }) {
               <td className="px-4 py-2.5 text-gray-500 text-xs">{p.position ?? i + 1}</td>
               <td className="px-4 py-2.5 whitespace-nowrap">
                 <div className="flex items-center gap-1.5">
-                  <span className={`font-medium ${isLeader ? 'text-yellow-300' : 'text-gray-100'}`}>{p.player_name}</span>
+                  <button
+                    onClick={() => onSelectPlayer({ id: p.player_id, name: p.player_name })}
+                    className={`font-medium hover:underline text-left ${isLeader ? 'text-yellow-300' : 'text-gray-100'}`}
+                  >
+                    {p.player_name}
+                  </button>
                   {isLeader && <span title="Tournament leader" className="text-base leading-none">⭐</span>}
                   {dumpsterFirePlayerIds.has(p.player_id) && <img src="/dumpster-fire.svg" title="Dumpster fire" className="inline-block align-middle" style={{ height: '2rem', width: '2rem' }} />}
                 </div>

@@ -153,6 +153,7 @@ export default async function DashboardPage({ params }: PageProps) {
   return (
     <Leaderboard
       leagueTournamentId={leagueTournamentId}
+      tournamentId={tournamentId}
       tournamentName={lt.tournaments?.name ?? 'Tournament'}
       leagueStatus={lt.status}
       standings={standings}
