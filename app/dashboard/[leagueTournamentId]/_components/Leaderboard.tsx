@@ -46,12 +46,12 @@ interface PlayerCardData {
 function ScorePill({ n, label }: { n: number; label: string }) {
   if (n === 0) return null
   const colours: Record<string, string> = {
-    eagle:  'bg-yellow-900/60 text-yellow-300',
-    birdie: 'bg-red-900/60 text-red-300',
+    eagle:  'bg-emerald-900/60 text-emerald-300',
+    birdie: 'bg-green-900/60 text-green-400',
     par:    'bg-gray-800 text-gray-400',
-    bogey:  'bg-blue-900/60 text-blue-300',
-    double: 'bg-blue-900/80 text-blue-200 font-bold',
-    worse:  'bg-purple-900/80 text-purple-200 font-bold',
+    bogey:  'bg-red-900/60 text-red-400',
+    double: 'bg-red-900/80 text-red-300 font-bold',
+    worse:  'bg-red-950 text-red-200 font-bold',
   }
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${colours[label] ?? 'bg-gray-800 text-gray-400'}`}>
@@ -136,11 +136,11 @@ function PlayerCardModal({ playerName, tournamentId, playerId, onClose }: {
                           <div key={h.h} className="text-center">
                             <div className="text-[9px] text-gray-600">{h.h}</div>
                             <div className={`text-xs font-medium rounded ${
-                              h.r <= -2 ? 'text-yellow-300' :
-                              h.r === -1 ? 'text-red-400' :
+                              h.r <= -2 ? 'text-emerald-400' :
+                              h.r === -1 ? 'text-green-400' :
                               h.r === 0  ? 'text-gray-400' :
-                              h.r === 1  ? 'text-blue-400' :
-                                           'text-blue-200 font-bold'
+                              h.r === 1  ? 'text-red-400' :
+                                           'text-red-300 font-bold'
                             }`}>{h.s}</div>
                           </div>
                         ))}
