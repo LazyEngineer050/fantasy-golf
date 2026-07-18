@@ -48,6 +48,7 @@ export default function DraftBoard({
   const [picks, setPicks] = useState(initialPicks)
   const [available, setAvailable] = useState(initialAvailable)
   const [search, setSearch] = useState('')
+  const [madeCutOnly, setMadeCutOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -95,9 +96,10 @@ export default function DraftBoard({
     })
   }
 
-  const filteredAvailable = available.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredAvailable = available.filter((p) => {
+    if (madeCutOnly && p.status !== 'active') return false
+    return p.name.toLowerCase().includes(search.toLowerCase())
+  })
 
   const myPicks = picks.filter((p) => p.user_id === currentUserId)
 
@@ -171,7 +173,18 @@ export default function DraftBoard({
         {/* Left: Available Players */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-gray-900 rounded-xl p-4">
-            <h2 className="text-lg font-bold mb-3 text-gray-100">Available Players</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold text-gray-100">Available Players</h2>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={madeCutOnly}
+                  onChange={(e) => setMadeCutOnly(e.target.checked)}
+                  className="w-4 h-4 accent-green-500"
+                />
+                <span className="text-sm text-gray-400">Made cut only</span>
+              </label>
+            </div>
             <input
               type="text"
               placeholder="Search players..."

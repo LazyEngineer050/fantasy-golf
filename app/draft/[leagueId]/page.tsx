@@ -110,12 +110,19 @@ export default async function DraftPage({ params }: PageProps) {
   const scores = (scoresRaw ?? []) as unknown as ScoreRow[]
   const scorePlayerIds = scores.map((s) => s.player_id)
 
-  const { data: playersRaw } = scorePlayerIds.length > 0
-    ? await supabase.from('players').select('id, name, espn_player_id').in('id', scorePlayerIds)
-    : { data: [] }
+  const [{ data: playersRaw }, { data: tpRaw }] = await Promise.all([
+    scorePlayerIds.length > 0
+      ? supabase.from('players').select('id, name, espn_player_id').in('id', scorePlayerIds)
+      : Promise.resolve({ data: [] }),
+    scorePlayerIds.length > 0
+      ? supabase.from('tournament_players').select('player_id, status').eq('tournament_id', tournamentId).in('player_id', scorePlayerIds)
+      : Promise.resolve({ data: [] }),
+  ])
 
   type PlayerRow = { id: string; name: string; espn_player_id: string | null }
+  type TPRow = { player_id: string; status: 'active' | 'cut' | 'wd' }
   const playerMap = new Map(((playersRaw ?? []) as unknown as PlayerRow[]).map((p) => [p.id, p]))
+  const statusMap = new Map(((tpRaw ?? []) as unknown as TPRow[]).map((t) => [t.player_id, t.status]))
 
   const availablePlayers: AvailablePlayer[] = scores
     .filter((s) => playerMap.has(s.player_id) && !draftedPlayerIds.has(s.player_id))
@@ -126,7 +133,7 @@ export default async function DraftPage({ params }: PageProps) {
         id: s.player_id,
         name: p.name,
         espn_player_id: p.espn_player_id ?? null,
-        status: 'active' as const,
+        status: statusMap.get(s.player_id) ?? 'active',
         total_strokes: s.total_strokes,
         position: s.position,
         thru: s.thru,
