@@ -2,6 +2,21 @@
 
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { runIngest } from '@/lib/ingest'
+
+export async function triggerIngest(leagueTournamentId: string) {
+  const supabase = await createSupabaseServerClient()
+  const { data: lt } = await supabase
+    .from('league_tournaments')
+    .select('tournament_id')
+    .eq('id', leagueTournamentId)
+    .single()
+  if (!lt) return { error: 'League tournament not found' }
+  const result = await runIngest(lt.tournament_id)
+  if ('error' in result) return { error: result.error }
+  revalidatePath('/admin')
+  return { ok: true, players: result.players }
+}
 
 export async function createTournament(formData: FormData) {
   const name = (formData.get('name') as string).trim()

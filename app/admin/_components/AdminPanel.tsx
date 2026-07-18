@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { createTournament, updateTournament, setLeagueTournamentStatus, updatePayoutConfig } from '@/app/actions/admin'
+import { createTournament, updateTournament, setLeagueTournamentStatus, updatePayoutConfig, triggerIngest } from '@/app/actions/admin'
 
 interface Tournament {
   id: string
@@ -145,6 +145,8 @@ function TournamentCard({ t }: { t: Tournament }) {
 function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
   const statusAction = useAction()
   const payoutAction = useAction()
+  const ingestAction = useAction()
+  const [ingestMsg, setIngestMsg] = useState<string | null>(null)
 
   const statusBadge: Record<string, string> = {
     drafting: 'bg-yellow-900/50 text-yellow-300 border border-yellow-800',
@@ -183,6 +185,25 @@ function LeagueTournamentCard({ lt }: { lt: LeagueTournamentRow }) {
           ))}
         </div>
         {statusAction.error && <p className="text-red-400 text-xs mt-1">{statusAction.error}</p>}
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">ESPN Ingest</p>
+        <button
+          disabled={ingestAction.isPending}
+          onClick={() => {
+            setIngestMsg(null)
+            ingestAction.run(
+              () => triggerIngest(lt.id),
+              () => setIngestMsg('Done')
+            )
+          }}
+          className="px-3 py-1.5 text-xs rounded-lg font-medium transition-colors bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-50"
+        >
+          {ingestAction.isPending ? 'Pulling from ESPN…' : '↓ Pull ESPN scores now'}
+        </button>
+        {ingestAction.error && <p className="text-red-400 text-xs mt-1">{ingestAction.error}</p>}
+        {ingestMsg && <p className="text-green-400 text-xs mt-1">{ingestMsg}</p>}
       </div>
 
       <form
