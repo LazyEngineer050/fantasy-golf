@@ -320,6 +320,15 @@ export async function initializeDraft(
     leagueTournamentId = created.id
   }
 
+  // Persist draft positions so the live draft room displays the correct order
+  for (let i = 0; i < draftOrder.length; i++) {
+    await supabase
+      .from('league_season_members')
+      .update({ draft_position: i + 1 })
+      .eq('league_season_id', leagueSeasonId)
+      .eq('user_id', draftOrder[i])
+  }
+
   // Delete any existing draft state for this league_tournament
   await supabase.from('draft_state').delete().eq('league_tournament_id', leagueTournamentId)
 
