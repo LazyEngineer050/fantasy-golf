@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 import DraftBoard from './_components/DraftBoard'
 import type { AvailablePlayer, DraftStateWithMembers, PickWithPlayer } from '@/lib/types'
+import { runIngest } from '@/lib/ingest'
 
 interface PageProps {
   params: Promise<{ leagueId: string }>
@@ -89,13 +90,23 @@ export default async function DraftPage({ params }: PageProps) {
     player_name: pickPlayerMap.get(p.player_id) ?? 'Unknown',
   }))
 
-  // Available players = those with scores for this tournament who haven't been picked
+  // Available players = those with scores for this tournament who haven't been picked.
+  // Auto-ingest if player_scores is empty so the draft room populates on first load.
   const draftedPlayerIds = new Set(picks.map((p) => p.player_id))
 
-  const { data: scoresRaw } = await supabase
+  let { data: scoresRaw } = await supabase
     .from('player_scores')
     .select('player_id, total_strokes, position, thru, players(id, name, espn_player_id)')
     .eq('tournament_id', tournamentId)
+
+  if (!scoresRaw || scoresRaw.length === 0) {
+    await runIngest(tournamentId)
+    const refetch = await supabase
+      .from('player_scores')
+      .select('player_id, total_strokes, position, thru, players(id, name, espn_player_id)')
+      .eq('tournament_id', tournamentId)
+    scoresRaw = refetch.data
+  }
 
   const availablePlayers: AvailablePlayer[] = ((scoresRaw ?? []) as any[])
     .filter((s) => s.players && !draftedPlayerIds.has(s.player_id))
