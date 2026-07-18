@@ -94,32 +94,44 @@ export default async function DraftPage({ params }: PageProps) {
   // Auto-ingest if player_scores is empty so the draft room populates on first load.
   const draftedPlayerIds = new Set(picks.map((p) => p.player_id))
 
-  let { data: scoresRaw } = await supabase
+  const fetchScores = () => supabase
     .from('player_scores')
-    .select('player_id, total_strokes, position, thru, players(id, name, espn_player_id)')
+    .select('player_id, total_strokes, position, thru')
     .eq('tournament_id', tournamentId)
+
+  let { data: scoresRaw } = await fetchScores()
 
   if (!scoresRaw || scoresRaw.length === 0) {
     await runIngest(tournamentId)
-    const refetch = await supabase
-      .from('player_scores')
-      .select('player_id, total_strokes, position, thru, players(id, name, espn_player_id)')
-      .eq('tournament_id', tournamentId)
-    scoresRaw = refetch.data
+    scoresRaw = (await fetchScores()).data
   }
 
-  const availablePlayers: AvailablePlayer[] = ((scoresRaw ?? []) as any[])
-    .filter((s) => s.players && !draftedPlayerIds.has(s.player_id))
+  type ScoreRow = { player_id: string; total_strokes: number | null; position: string | null; thru: string | null }
+  const scores = (scoresRaw ?? []) as unknown as ScoreRow[]
+  const scorePlayerIds = scores.map((s) => s.player_id)
+
+  const { data: playersRaw } = scorePlayerIds.length > 0
+    ? await supabase.from('players').select('id, name, espn_player_id').in('id', scorePlayerIds)
+    : { data: [] }
+
+  type PlayerRow = { id: string; name: string; espn_player_id: string | null }
+  const playerMap = new Map(((playersRaw ?? []) as unknown as PlayerRow[]).map((p) => [p.id, p]))
+
+  const availablePlayers: AvailablePlayer[] = scores
+    .filter((s) => playerMap.has(s.player_id) && !draftedPlayerIds.has(s.player_id))
     .sort((a, b) => (a.total_strokes ?? 999) - (b.total_strokes ?? 999))
-    .map((s) => ({
-      id: s.player_id,
-      name: s.players.name,
-      espn_player_id: s.players.espn_player_id ?? null,
-      status: 'active' as const,
-      total_strokes: s.total_strokes,
-      position: s.position,
-      thru: s.thru,
-    }))
+    .map((s) => {
+      const p = playerMap.get(s.player_id)!
+      return {
+        id: s.player_id,
+        name: p.name,
+        espn_player_id: p.espn_player_id ?? null,
+        status: 'active' as const,
+        total_strokes: s.total_strokes,
+        position: s.position,
+        thru: s.thru,
+      }
+    })
 
   const myPicks = picks.filter((p) => p.user_id === userId)
 
