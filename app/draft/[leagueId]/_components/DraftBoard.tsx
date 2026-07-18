@@ -76,8 +76,11 @@ export default function DraftBoard({
         { event: 'INSERT', schema: 'public', table: 'picks', filter: `league_tournament_id=eq.${leagueId}` },
         (payload) => {
           const newPick = payload.new as any
-          setPicks((prev) => [...prev, newPick])
-          setAvailable((prev) => prev.filter((p) => p.id !== newPick.player_id))
+          setAvailable((prev) => {
+            const picked = prev.find((p) => p.id === newPick.player_id)
+            setPicks((cur) => [...cur, { ...newPick, player_name: picked?.name ?? '?' }])
+            return prev.filter((p) => p.id !== newPick.player_id)
+          })
         }
       )
       .subscribe()
