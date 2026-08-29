@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { computeWinnings, DEFAULT_PAYOUT, type PayoutConfig } from '@/lib/winnings'
+import { fetchScoreboardPayload } from '@/lib/espn-browser'
 import type { TeamStanding } from '@/lib/types'
 
 // Keep a rolling history of total_strokes snapshots (capped at 10 refreshes).
@@ -295,7 +296,15 @@ export default function Leaderboard({
     const poll = async () => {
       if (statusRef.current === 'completed') return
 
-      await fetch('/api/refresh', { method: 'POST' }).catch(() => {})
+      // The server may not be able to reach ESPN (blocked egress on Vercel), so
+      // fetch the scoreboard here and hand it over. The server prefers its own
+      // fetch and only falls back to this payload when its own fails.
+      const scoreboard = await fetchScoreboardPayload()
+      await fetch('/api/refresh', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tournamentId, scoreboard }),
+      }).catch(() => {})
 
       type TeamRow = { user_id: string; total_strokes: number | null; rank: number | null }
       type PlayerRow = {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   ensureLeagueSeason,
   initializeDraft,
@@ -14,6 +14,7 @@ import {
   completeLeagueTournament,
 } from '@/app/actions/commissioner'
 import type { CutPlayer } from '@/app/actions/commissioner'
+import { fetchEspnLeaderboardFromBrowser } from '@/lib/espn-browser'
 import type {
   LeagueRow,
   SeasonRow,
@@ -36,6 +37,8 @@ interface Props {
   espnEventId: string | null
   espnEventName: string | null
   espnEventDate: string | null
+  /** true when the server reached ESPN; false means cutPlayers is the hardcoded fallback */
+  espnSource: boolean
 }
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500'
@@ -53,9 +56,48 @@ export default function CommissionerBoard({
   espnEventId,
   espnEventName,
   espnEventDate,
+  espnSource,
 }: Props) {
   const [selectedLeagueId, setSelectedLeagueId] = useState(initialLeagues[0]?.id ?? '')
   const [view, setView] = useState<'members' | 'draft' | 'manage'>('members')
+
+  // ── ESPN pool ──
+  // The server may not be able to reach ESPN (Vercel's egress is blocked), in which
+  // case `cutPlayers` is the hardcoded fallback list. The browser can reach ESPN
+  // directly, so pull the real field client-side and swap it in.
+  const [pool, setPool] = useState(cutPlayers)
+  const [liveEvent, setLiveEvent] = useState({ id: espnEventId, name: espnEventName, date: espnEventDate })
+  const [poolSource, setPoolSource] = useState<'server' | 'browser' | 'fallback' | 'loading'>(
+    espnSource ? 'server' : 'loading'
+  )
+
+  useEffect(() => {
+    if (espnSource) return
+    let cancelled = false
+    fetchEspnLeaderboardFromBrowser().then((result) => {
+      if (cancelled) return
+      const players = result?.leaderboard.players.filter((p) => p.status !== 'wd') ?? []
+      if (players.length === 0) {
+        setPoolSource('fallback')
+        return
+      }
+      setPool(players.map((p) => ({
+        espnPlayerId: p.espnPlayerId,
+        name: p.name,
+        madeCut: p.status === 'active',
+        position: p.position,
+        totalStrokes: p.totalStrokes,
+        thru: p.thru,
+      })))
+      setLiveEvent({
+        id: result!.leaderboard.eventId,
+        name: result!.leaderboard.eventName,
+        date: result!.leaderboard.eventDate,
+      })
+      setPoolSource('browser')
+    })
+    return () => { cancelled = true }
+  }, [espnSource])
 
   // Local state for optimistic updates (server revalidates on save)
   const [leagues, setLeagues] = useState(initialLeagues)
@@ -105,6 +147,25 @@ export default function CommissionerBoard({
             )}
           </div>
 
+          <div className="flex items-center">
+            {poolSource === 'loading' && (
+              <span className="text-xs bg-gray-800 text-gray-400 px-3 py-1 rounded-full font-medium">Loading ESPN field…</span>
+            )}
+            {poolSource === 'server' && (
+              <span className="text-xs bg-green-900 text-green-300 px-3 py-1 rounded-full font-medium">
+                Live from ESPN{liveEvent.name ? `: ${liveEvent.name}` : ''}
+              </span>
+            )}
+            {poolSource === 'browser' && (
+              <span className="text-xs bg-green-900 text-green-300 px-3 py-1 rounded-full font-medium" title="The server could not reach ESPN, so the field was loaded directly by your browser.">
+                Live from ESPN{liveEvent.name ? `: ${liveEvent.name}` : ''} · via browser
+              </span>
+            )}
+            {poolSource === 'fallback' && (
+              <span className="text-xs bg-yellow-900 text-yellow-300 px-3 py-1 rounded-full font-medium">⚠ Fallback player list — ESPN unreachable</span>
+            )}
+          </div>
+
           {selectedLeague && (
             <div className="flex gap-2 ml-auto">
               {(['members', 'draft', 'manage'] as const).map((v) => (
@@ -141,10 +202,10 @@ export default function CommissionerBoard({
           leagueSeason={currentLS}
           availableTournaments={availableTournaments}
           currentSeason={currentSeason}
-          cutPlayers={cutPlayers}
-          espnEventId={espnEventId}
-          espnEventName={espnEventName}
-          espnEventDate={espnEventDate}
+          cutPlayers={pool}
+          espnEventId={liveEvent.id}
+          espnEventName={liveEvent.name}
+          espnEventDate={liveEvent.date}
         />
       )}
 
@@ -161,7 +222,7 @@ export default function CommissionerBoard({
           leagueTournaments={myLeagueTournaments}
           leagueSeasons={leagueSeasons}
           existingTeamsByLT={existingTeamsByLT}
-          cutPlayers={cutPlayers}
+          cutPlayers={pool}
           tournaments={tournaments}
         />
       )}

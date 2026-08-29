@@ -1,8 +1,20 @@
-import { fetchEspnLeaderboard } from '@/lib/espn'
+import { espnLeaderboardFromPayload, fetchEspnLeaderboard, type EspnPlayer } from '@/lib/espn'
 import { recomputeTeamScores } from '@/lib/scoring'
 import { createSupabaseServiceClient } from '@/lib/supabase/server'
 
-export async function runIngest(tournamentId: string): Promise<{ ok: true; players: number; leagueTournaments: number; at: string } | { error: string }> {
+export interface IngestOptions {
+  /**
+   * Raw ESPN scoreboard payload supplied by a client. Used only when the server's
+   * own fetch fails — Vercel's egress to site.api.espn.com is blocked, but the
+   * user's browser can reach it and hands the payload back.
+   */
+  scoreboard?: unknown
+}
+
+export async function runIngest(
+  tournamentId: string,
+  options: IngestOptions = {}
+): Promise<{ ok: true; players: number; leagueTournaments: number; source: 'server' | 'client'; at: string } | { error: string }> {
   const supabase = createSupabaseServiceClient()
 
   const { data: tournament, error: tErr } = await supabase
@@ -14,12 +26,25 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
   if (tErr || !tournament) return { error: 'Tournament not found' }
   if (!tournament.espn_event_id) return { error: 'No ESPN event ID configured' }
 
-  let espnPlayers
+  // Prefer the server's own fetch; fall back to a client-supplied payload.
+  let espnPlayers: EspnPlayer[] | null = null
+  let source: 'server' | 'client' = 'server'
   try {
     espnPlayers = await fetchEspnLeaderboard(tournament.espn_event_id)
   } catch {
-    return { error: 'ESPN fetch failed' }
+    espnPlayers = null
   }
+
+  if (!espnPlayers && options.scoreboard != null) {
+    const fromClient = espnLeaderboardFromPayload(options.scoreboard)
+    // Only trust the payload if it is for the event this tournament tracks.
+    if (fromClient && fromClient.eventId === tournament.espn_event_id) {
+      espnPlayers = fromClient.players
+      source = 'client'
+    }
+  }
+
+  if (!espnPlayers || espnPlayers.length === 0) return { error: 'ESPN fetch failed' }
 
   const now = new Date().toISOString()
 
@@ -114,5 +139,5 @@ export async function runIngest(tournamentId: string): Promise<{ ok: true; playe
     }
   }
 
-  return { ok: true, players: espnPlayers.length, leagueTournaments: liveLTs?.length ?? 0, at: now }
+  return { ok: true, players: espnPlayers.length, leagueTournaments: liveLTs?.length ?? 0, source, at: now }
 }

@@ -23,17 +23,26 @@ Live at: **https://fantasy-golf-sooty.vercel.app**
 ## ESPN data
 - Scoreboard endpoint (works publicly): `https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard`
 - Leaderboard endpoint (`site.web.api.espn.com`) returns 404 publicly — do not use
-- **`linescore.value` = raw strokes** (e.g. 68, 70) — always > 0 when played, exactly 0 for unplayed/placeholder rounds. Never use `value` for relative-to-par math.
+- **`linescore.value` = raw strokes** (e.g. 68, 70) — always > 0 when played. Never use `value` for relative-to-par math.
+- Unplayed rounds come in **two shapes**: `value: 0` with `displayValue: ''` (majors' R4 stub), or a bare `{ period: n }` with no `value`/`displayValue` keys at all (TOUR Championship). Always test with `isRoundPlayed()`, never `value === 0`.
 - **`linescore.displayValue`** = relative-to-par string ("-3", "E", "+2") — use `parseRelPar()` for math; use `value > 0` for structural "was this round played?" checks.
-- ESPN pre-creates a placeholder R4 linescore (value=0) before R4 begins — `currentRound` must scan `[r4, r3, r2, r1]` for first with `value > 0`, not just `r4 ?? r3`.
+- ESPN pre-creates a placeholder linescore for the next round before it begins — `currentRound` must scan `[r4, r3, r2, r1]` for the first `isRoundPlayed()`, not just `r4 ?? r3`.
 - Cut line is derived dynamically: worst 2-round relative-to-par total among players who have R3 data (`hasMadeCut`). Falls back to top-70 sorted estimate when no R3 data exists (pre-cut).
 - `hasMadeCut(c)`: true if R3 or R4 `value > 0`, OR if R3 has a tee time scheduled.
 - Tee time is in `linescores[period=N].statistics.categories[0].stats[-1].displayValue` (format: "Sun Apr 12 14:25:00 PDT 2026" — labeled PDT but is ET)
 - `inferThru`: when a round has 18 nested hole linescores, check for an unplayed round (value===0) at a later period before returning 'F' — otherwise past completed rounds wrongly show as finished
-- All ESPN parsing functions (`parseRelPar`, `extractTeeTime`, `hasMadeCut`, `determineCutLine`, `inferStatus`, `inferThru`) are exported from `lib/espn.ts` for testability
+- All ESPN parsing functions (`parseRelPar`, `isRoundPlayed`, `extractTeeTime`, `hasMadeCut`, `determineCutLine`, `inferStatus`, `inferThru`) are exported from `lib/espn.ts` for testability
+
+## ESPN reachability (important)
+- **Vercel's servers cannot reach `site.api.espn.com`** — every server-side fetch fails (`/api/ingest` returns `{"error":"ESPN fetch failed"}`). It still works from local dev.
+- ESPN serves the scoreboard with `Access-Control-Allow-Origin: *`, so **the browser can fetch it directly**. `lib/espn-browser.ts` does this and hands the raw payload back to the server.
+- `runIngest(tournamentId, { scoreboard })` prefers its own server fetch and only falls back to a client payload — and only when the payload's event id matches the tournament's `espn_event_id`.
+- `POST /api/refresh` accepts `{ tournamentId?, scoreboard? }` and will only ingest tournaments whose league_tournament is `drafting` or `live`, so completed results can't be rewritten.
+- Client payloads are unauthenticated: a determined league member could POST crafted scores for the in-progress tournament. Acceptable for a private league; revisit if the app opens up.
+- Commissioner page, leaderboard poll, and draft room all fall back to the browser fetch automatically.
 
 ## Scoring pipeline
-1. `POST /api/refresh` (public) — called by leaderboard client every 30 s
+1. `POST /api/refresh` (public) — called by leaderboard client every 30 s, with a browser-fetched ESPN payload attached
 2. `POST /api/ingest` (secret-protected) — same logic, for manual/cron use
 3. Both call `lib/ingest.ts → runIngest(tournamentId)`
 4. Scores written to `player_scores` (r1–r4 + total + today + thru + position + tee_time)
@@ -56,6 +65,7 @@ Live at: **https://fantasy-golf-sooty.vercel.app**
 - `/commissioner` — build teams offline, assign players from ESPN pool, save draft; Management tab: rename/delete team, add/remove picks
 - `/admin` — create series, tournaments, leagues; manage league members, status, draft init
 - `/series/[seriesId]` — legacy series page (still exists but not linked from main nav)
+- `GET /api/draft-pool?leagueTournamentId=` — undrafted players for a draft room; used to reload the pool after a client-assisted ingest
 
 ## Leaderboard (`/dashboard/[leagueId]`)
 - **Teams view**: ranked team cards with player table. Columns: Player | icons | Total | R{n}…R1
@@ -110,7 +120,8 @@ Live at: **https://fantasy-golf-sooty.vercel.app**
 ## Testing
 - vitest with `@` path alias (mapped to repo root in `vitest.config.ts`)
 - Run: `npm test` (single pass) or `npm run test:watch`
-- `__tests__/espn.test.ts` — 45 tests: `parseRelPar`, `extractTeeTime`, `hasMadeCut`, `determineCutLine`, `inferStatus`, `inferThru`, currentRound selection, auto-complete guard
+- `__tests__/espn.test.ts` — 59 tests: `parseRelPar`, `extractTeeTime`, `hasMadeCut`, `determineCutLine`, `inferStatus`, `inferThru`, currentRound selection, auto-complete guard
+- `__tests__/espn-browser.test.ts` — 5 tests: browser scoreboard fetch, CORS-safe request shape, failure handling
 - `__tests__/winnings.test.ts` — 22 tests: `computeWinnings` prize splits/ties, `isTurd` conditions, `turdSize` scaling
 
 ## Historical data

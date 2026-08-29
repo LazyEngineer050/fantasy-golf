@@ -146,6 +146,7 @@ export default async function DraftPage({ params }: PageProps) {
     <DraftBoard
       leagueId={leagueTournamentId}
       leagueName={leagueName}
+      tournamentId={tournamentId}
       tournamentName={lt.tournaments?.name ?? 'Tournament'}
       leagueStatus={lt.status}
       currentUserId={userId}

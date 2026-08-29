@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { submitPick } from '@/app/actions/draft'
+import { fetchScoreboardPayload } from '@/lib/espn-browser'
 import type {
   AvailablePlayer,
   DraftStateWithMembers,
@@ -12,6 +13,7 @@ import type {
 interface Props {
   leagueId: string
   leagueName: string
+  tournamentId: string
   tournamentName: string
   leagueStatus: 'drafting' | 'live' | 'completed'
   currentUserId: string | null
@@ -35,6 +37,7 @@ async function claimIdentity(userId: string) {
 export default function DraftBoard({
   leagueId,
   leagueName,
+  tournamentId,
   tournamentName,
   leagueStatus,
   currentUserId,
@@ -53,6 +56,31 @@ export default function DraftBoard({
   const [isPending, startTransition] = useTransition()
 
   const isOnClock = draftState?.on_clock_user_id === currentUserId
+
+  // The player pool comes from an ESPN ingest. If the server could not reach ESPN
+  // the pool arrives empty — fetch the scoreboard here and hand it to the server,
+  // then pull the freshly ingested pool.
+  const [poolLoading, setPoolLoading] = useState(initialAvailable.length === 0)
+  useEffect(() => {
+    if (initialAvailable.length > 0) return
+    let cancelled = false
+    ;(async () => {
+      const scoreboard = await fetchScoreboardPayload()
+      if (scoreboard != null) {
+        await fetch('/api/refresh', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ tournamentId, scoreboard }),
+        }).catch(() => {})
+      }
+      const res = await fetch(`/api/draft-pool?leagueTournamentId=${leagueId}`).catch(() => null)
+      if (cancelled || !res?.ok) { if (!cancelled) setPoolLoading(false); return }
+      const data: { players: AvailablePlayer[] } = await res.json()
+      setAvailable(data.players)
+      setPoolLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [initialAvailable.length, leagueId, tournamentId])
 
   // Supabase Realtime subscriptions
   useEffect(() => {
@@ -197,7 +225,9 @@ export default function DraftBoard({
             />
             <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
               {filteredAvailable.length === 0 && (
-                <p className="text-gray-500 text-sm text-center py-4">No players found</p>
+                <p className="text-gray-500 text-sm text-center py-4">
+                  {poolLoading ? 'Loading field from ESPN…' : 'No players found'}
+                </p>
               )}
               {filteredAvailable.map((player) => (
                 <div

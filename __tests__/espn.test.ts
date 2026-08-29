@@ -6,6 +6,8 @@ import {
   determineCutLine,
   inferStatus,
   inferThru,
+  isRoundPlayed,
+  espnLeaderboardFromPayload,
   type RawLinescore,
   type RawCompetitor,
 } from '@/lib/espn'
@@ -281,7 +283,7 @@ describe('currentRound selection', () => {
       ls(4, 0, ''),       // placeholder
     ]
     const played = [linescores[3], linescores[2], linescores[1], linescores[0]]
-      .find((l) => l != null && l.value > 0)
+      .find(isRoundPlayed)
     expect(played).toEqual(linescores[2]) // R3
     expect(played?.displayValue).toBe('-4')
   })
@@ -294,14 +296,14 @@ describe('currentRound selection', () => {
       ls(4, 67, '-5'),
     ]
     const played = [linescores[3], linescores[2], linescores[1], linescores[0]]
-      .find((l) => l != null && l.value > 0)
+      .find(isRoundPlayed)
     expect(played).toEqual(linescores[3]) // R4
   })
 
   it('returns null todayStrokes when no rounds played', () => {
     const linescores: RawLinescore[] = []
     const currentRound = [undefined, undefined, undefined, undefined]
-      .find((l) => l != null && (l as RawLinescore).value > 0) ?? null
+      .find(isRoundPlayed) ?? null
     expect(currentRound).toBeNull()
   })
 })
@@ -337,5 +339,129 @@ describe('auto-complete guard (r4_strokes required)', () => {
     const allFinished = scores.length > 0 &&
       scores.every((s) => s.thru === 'F' && s.r4_strokes !== null)
     expect(allFinished).toBe(false)
+  })
+})
+
+// ─── bare placeholder rounds (TOUR Championship shape) ────────────────────────
+// ESPN sends `{ period: 3 }` — no `value`, no `displayValue` — for a round that
+// hasn't started, instead of the `value: 0` placeholder the majors use.
+
+/** A round ESPN has not started yet, with no value key at all. */
+function bare(period: number): RawLinescore {
+  return { period }
+}
+
+describe('isRoundPlayed', () => {
+  it('is true for a played round (value = raw strokes)', () => {
+    expect(isRoundPlayed(ls(1, 68, '-3'))).toBe(true)
+  })
+
+  it('is false for a value=0 placeholder', () => {
+    expect(isRoundPlayed(ls(4, 0, ''))).toBe(false)
+  })
+
+  it('is false for a bare { period } placeholder', () => {
+    expect(isRoundPlayed(bare(3))).toBe(false)
+  })
+
+  it('is false for missing/undefined linescores', () => {
+    expect(isRoundPlayed(undefined)).toBe(false)
+    expect(isRoundPlayed(null)).toBe(false)
+  })
+})
+
+describe('bare placeholder handling', () => {
+  it('hasMadeCut is false when R3 is a bare placeholder', () => {
+    expect(hasMadeCut(competitor([ls(1, 70, 'E'), ls(2, 68, '-2'), bare(3)]))).toBe(false)
+  })
+
+  it('inferThru returns null between rounds when the next round is a bare placeholder', () => {
+    // R2 complete (18 holes) and R3 not yet started — today has not begun,
+    // so the finished R2 must not report as 'F'.
+    const c = competitor([ls(1, 70, 'E', 18), ls(2, 68, '-2', 18), bare(3)])
+    expect(inferThru(c)).toBeNull()
+  })
+
+  it('inferThru still reports F when no later round exists at all', () => {
+    const c = competitor([ls(1, 70, 'E', 18), ls(2, 68, '-2', 18)])
+    expect(inferThru(c)).toBe('F')
+  })
+
+  it('currentRound picks R2 when R3 is a bare placeholder', () => {
+    const linescores = [ls(1, 70, 'E'), ls(2, 68, '-2'), bare(3)]
+    const played = [undefined, linescores[2], linescores[1], linescores[0]].find(isRoundPlayed)
+    expect(played).toEqual(linescores[1])
+  })
+
+  it('tee-time lookup finds the bare placeholder round', () => {
+    const teeLs: RawLinescore = {
+      ...bare(3),
+      statistics: { categories: [{ stats: [{ displayValue: 'Sat Aug 29 13:40:00 PDT 2026' }] }] },
+    }
+    const linescores = [ls(1, 70, 'E'), ls(2, 68, '-2'), teeLs]
+    const unplayed = linescores.find((l) => !isRoundPlayed(l))
+    expect(extractTeeTime(unplayed)).toBe('1:40 PM ET')
+  })
+
+  it('no-cut field: nobody is cut when every R3 is a bare placeholder', () => {
+    // 30-player TOUR Championship field, no cut. Falls back to the sorted-totals
+    // estimate; with fewer than 70 players that is the worst total, so all stay active.
+    const field = [-10, -5, 0, 4].map((total) =>
+      competitor([ls(1, 70, String(total)), ls(2, 70, 'E'), bare(3)])
+    )
+    const cutLine = determineCutLine(field)
+    expect(cutLine).toBe(4)
+    expect(field.map((c) => inferStatus(c, cutLine))).toEqual(['active', 'active', 'active', 'active'])
+  })
+})
+
+// ─── client-supplied scoreboard payloads ──────────────────────────────────────
+// Vercel cannot reach site.api.espn.com, so the browser fetches the scoreboard and
+// hands the raw payload back for ingestion. Parsing must work on that payload.
+
+describe('espnLeaderboardFromPayload', () => {
+  const payload = {
+    events: [{
+      id: '401811964',
+      name: 'TOUR Championship',
+      competitions: [{
+        date: '2026-08-27T04:00Z',
+        competitors: [
+          { id: '1', order: 1, score: '-10', athlete: { displayName: 'Ryan Gerard' },
+            linescores: [ls(1, 65, '-5', 18), ls(2, 65, '-5', 18), bare(3)] },
+          { id: '2', order: 2, score: '+4', athlete: { displayName: 'J.J. Spaun' },
+            linescores: [ls(1, 76, '+4', 18), { period: 2, value: 0, displayValue: '-' }] },
+        ],
+      }],
+    }],
+  }
+
+  it('extracts event identity and players', () => {
+    const lb = espnLeaderboardFromPayload(payload)
+    expect(lb?.eventId).toBe('401811964')
+    expect(lb?.eventName).toBe('TOUR Championship')
+    expect(lb?.eventDate).toBe('2026-08-27')
+    expect(lb?.players).toHaveLength(2)
+  })
+
+  it('parses scores the same way the server fetch does', () => {
+    const gerard = espnLeaderboardFromPayload(payload)!.players[0]
+    expect(gerard.name).toBe('Ryan Gerard')
+    expect(gerard.status).toBe('active')
+    expect(gerard.totalStrokes).toBe(-10)
+    expect(gerard.r1Strokes).toBe(-5)
+    expect(gerard.r2Strokes).toBe(-5)
+    expect(gerard.thru).toBeNull()   // R3 has not started
+  })
+
+  it('still flags a withdrawal', () => {
+    expect(espnLeaderboardFromPayload(payload)!.players[1].status).toBe('wd')
+  })
+
+  it('returns null for junk or empty payloads', () => {
+    expect(espnLeaderboardFromPayload(null)).toBeNull()
+    expect(espnLeaderboardFromPayload({})).toBeNull()
+    expect(espnLeaderboardFromPayload({ events: [] })).toBeNull()
+    expect(espnLeaderboardFromPayload({ events: [{ id: '1', competitions: [{ competitors: [] }] }] })).toBeNull()
   })
 })

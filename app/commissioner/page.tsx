@@ -214,10 +214,8 @@ export default async function CommissionerPage() {
           <p className="text-gray-400 text-sm mt-1">Manage leagues, seasons, and drafts</p>
         </div>
         <div className="flex items-center gap-3">
-          {espnSource
-            ? <span className="text-xs bg-green-900 text-green-300 px-3 py-1 rounded-full font-medium">Live from ESPN{espnEventName ? `: ${espnEventName}` : ''}</span>
-            : <span className="text-xs bg-yellow-900 text-yellow-300 px-3 py-1 rounded-full font-medium">Fallback player list</span>
-          }
+          {/* ESPN status chip lives in CommissionerBoard — it knows whether the
+              browser had to load the field itself after a failed server fetch. */}
           <Link href="/standings" className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors">
             ← Standings
           </Link>
@@ -235,6 +233,7 @@ export default async function CommissionerPage() {
         espnEventId={espnEventId}
         espnEventName={espnEventName}
         espnEventDate={espnEventDate}
+        espnSource={espnSource}
       />
     </div>
   )

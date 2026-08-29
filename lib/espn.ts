@@ -35,15 +35,16 @@ export interface EspnPlayer {
   }
 }
 
-const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard'
+export const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard'
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
   Accept: 'application/json',
 }
 
 interface RawLinescore {
-  value: number
-  displayValue: string
+  // ESPN omits both keys entirely on placeholder rounds (e.g. `{ period: 3 }`)
+  value?: number | null
+  displayValue?: string
   period: number
   scoreType?: { displayValue?: string }   // hole-level only: "-2", "-1", "E", "+1", etc.
   linescores?: RawLinescore[]             // nested hole-by-hole data
@@ -74,6 +75,18 @@ export function roundLinescore(linescores: RawLinescore[], period: number): RawL
 }
 
 /**
+ * True when a round has actually been played. `value` is raw strokes, so it is
+ * always > 0 for a played round. ESPN marks a round as not-yet-played in two
+ * different ways depending on the event:
+ *   - a placeholder with `value: 0` (majors: the R4 stub after R3 finishes)
+ *   - a bare `{ period: n }` with no `value` key at all (TOUR Championship)
+ * Both must count as unplayed.
+ */
+export function isRoundPlayed(ls: RawLinescore | undefined | null): boolean {
+  return ls != null && ls.value != null && ls.value > 0
+}
+
+/**
  * Extract tee time from a round linescore's statistics.
  * ESPN stores it as the last stat: "Sun Apr 12 14:25:00 PDT 2026"
  * The time is in Eastern (despite the "PDT" label — ESPN bug).
@@ -100,7 +113,7 @@ export function extractHoleScores(roundLs: RawLinescore | undefined): HoleScore[
   if (!holes || holes.length === 0) return null
   return holes.map((h) => ({
     h: h.period,
-    s: h.value,
+    s: h.value ?? 0,
     r: parseRelPar(h.scoreType?.displayValue as string | undefined) ?? 0,
   })).sort((a, b) => a.h - b.h)
 }
@@ -111,8 +124,8 @@ export function extractHoleScores(roundLs: RawLinescore | undefined): HoleScore[
 export function hasMadeCut(c: RawCompetitor): boolean {
   const r3ls = roundLinescore(c.linescores ?? [], 3)
   const r4ls = roundLinescore(c.linescores ?? [], 4)
-  if (r3ls?.value != null && r3ls.value > 0) return true
-  if (r4ls?.value != null && r4ls.value > 0) return true
+  if (isRoundPlayed(r3ls)) return true
+  if (isRoundPlayed(r4ls)) return true
   // R3 tee time present → player is scheduled for R3 (made the cut)
   return extractTeeTime(r3ls) !== null
 }
@@ -151,8 +164,8 @@ export function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut'
   const r2ls = roundLinescore(c.linescores ?? [], 2)
 
   // value is raw strokes — 0 or absent means the round wasn't played
-  const r1played = r1ls != null && r1ls.value > 0
-  const r2played = r2ls != null && r2ls.value > 0
+  const r1played = isRoundPlayed(r1ls)
+  const r2played = isRoundPlayed(r2ls)
 
   if (!r1played) return 'wd'  // no R1 → WD before tournament
   if (!r2played) return 'wd'  // R1 but no R2 → WD after R1
@@ -161,20 +174,20 @@ export function inferStatus(c: RawCompetitor, cutLine: number): 'active' | 'cut'
   if (hasMadeCut(c)) return 'active'
 
   // Compare relative-to-par totals against cut line
-  const r1 = parseRelPar(r1ls.displayValue) ?? 0
-  const r2 = parseRelPar(r2ls.displayValue) ?? 0
+  const r1 = parseRelPar(r1ls?.displayValue) ?? 0
+  const r2 = parseRelPar(r2ls?.displayValue) ?? 0
   return r1 + r2 <= cutLine ? 'active' : 'cut'
 }
 
 export function inferThru(c: RawCompetitor): string | null {
   const linescores = c.linescores ?? []
   // value is raw strokes — rounds with value > 0 have been played
-  const started = linescores.filter((l) => l.value > 0).sort((a, b) => b.period - a.period)
+  const started = linescores.filter(isRoundPlayed).sort((a, b) => b.period - a.period)
   const current = started[0]
   if (!current) return null
 
   const hasUnplayedRoundAhead = linescores.some(
-    (l) => l.period > current.period && l.value === 0
+    (l) => l.period > current.period && !isRoundPlayed(l)
   )
 
   if (current.linescores?.length) {
@@ -194,11 +207,20 @@ export function inferThru(c: RawCompetitor): string | null {
   return 'F'
 }
 
-async function fetchScoreboard(): Promise<{ eventId: string; eventName: string; eventDate: string | null; competitors: RawCompetitor[] } | null> {
-  const res = await fetch(SCOREBOARD_URL, { headers: HEADERS, cache: 'no-store' })
-  if (!res.ok) return null
-  const data = await res.json()
-  const event = data?.events?.[0]
+export interface ScoreboardEvent {
+  eventId: string
+  eventName: string
+  eventDate: string | null
+  competitors: RawCompetitor[]
+}
+
+/**
+ * Parse a raw ESPN scoreboard payload. Pure — safe to run in the browser on a
+ * payload the client fetched itself (see `lib/espn-browser.ts`).
+ */
+export function parseScoreboardPayload(data: unknown): ScoreboardEvent | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const event = (data as any)?.events?.[0]
   if (!event) return null
   const competitors: RawCompetitor[] = event?.competitions?.[0]?.competitors ?? []
   // eventDate: prefer competitions[0].date, fall back to event.date (ISO string)
@@ -207,13 +229,14 @@ async function fetchScoreboard(): Promise<{ eventId: string; eventName: string; 
   return { eventId: event.id, eventName: event.name ?? event.shortName ?? '', eventDate, competitors }
 }
 
-export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPlayer[]> {
-  const result = await fetchScoreboard()
-  if (!result) throw new Error('ESPN scoreboard fetch failed')
+async function fetchScoreboard(): Promise<ScoreboardEvent | null> {
+  const res = await fetch(SCOREBOARD_URL, { headers: HEADERS, cache: 'no-store' })
+  if (!res.ok) return null
+  return parseScoreboardPayload(await res.json())
+}
 
-  const { competitors } = result
-  if (competitors.length === 0) throw new Error('No competitors in ESPN scoreboard')
-
+/** Map raw scoreboard competitors to players. Pure — runs on server or client. */
+export function playersFromCompetitors(competitors: RawCompetitor[]): EspnPlayer[] {
   const cutLine = determineCutLine(competitors)
 
   return competitors.map((c) => {
@@ -222,7 +245,7 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
     const r3 = roundLinescore(c.linescores ?? [], 3)
     const r4 = roundLinescore(c.linescores ?? [], 4)
     // Most recently played round (value > 0 = raw strokes recorded)
-    const currentRound = [r4, r3, r2, r1].find((ls) => ls != null && ls.value > 0) ?? null
+    const currentRound = [r4, r3, r2, r1].find(isRoundPlayed) ?? null
 
     // Today's score: score of the most recently played round
     const todayStrokes = currentRound ? parseRelPar(currentRound.displayValue) : null
@@ -231,7 +254,7 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
 
     // Tee time: stored in the unstarted round's linescore statistics (last stat entry).
     // Only extract if the player hasn't started today's round (thru is null).
-    const unplayedRound = (c.linescores ?? []).find((l) => l.value === 0)
+    const unplayedRound = (c.linescores ?? []).find((l) => !isRoundPlayed(l))
     const teeTime = !thru ? extractTeeTime(unplayedRound) : null
 
     return {
@@ -255,6 +278,35 @@ export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPl
       },
     }
   })
+}
+
+export interface EspnLeaderboard {
+  eventId: string
+  eventName: string
+  eventDate: string | null
+  players: EspnPlayer[]
+}
+
+/**
+ * Build a full leaderboard from a raw scoreboard payload — used when the payload
+ * came from the browser because the server could not reach ESPN.
+ */
+export function espnLeaderboardFromPayload(data: unknown): EspnLeaderboard | null {
+  const result = parseScoreboardPayload(data)
+  if (!result || result.competitors.length === 0) return null
+  return {
+    eventId: result.eventId,
+    eventName: result.eventName,
+    eventDate: result.eventDate,
+    players: playersFromCompetitors(result.competitors),
+  }
+}
+
+export async function fetchEspnLeaderboard(_espnEventId: string): Promise<EspnPlayer[]> {
+  const result = await fetchScoreboard()
+  if (!result) throw new Error('ESPN scoreboard fetch failed')
+  if (result.competitors.length === 0) throw new Error('No competitors in ESPN scoreboard')
+  return playersFromCompetitors(result.competitors)
 }
 
 /** Fetch the currently active PGA tour event from ESPN scoreboard */
