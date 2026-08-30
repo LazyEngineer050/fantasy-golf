@@ -8,6 +8,7 @@ import {
   inferThru,
   isRoundPlayed,
   espnLeaderboardFromPayload,
+  playersFromCompetitors,
   type RawLinescore,
   type RawCompetitor,
 } from '@/lib/espn'
@@ -463,5 +464,24 @@ describe('espnLeaderboardFromPayload', () => {
     expect(espnLeaderboardFromPayload({})).toBeNull()
     expect(espnLeaderboardFromPayload({ events: [] })).toBeNull()
     expect(espnLeaderboardFromPayload({ events: [{ id: '1', competitions: [{ competitors: [] }] }] })).toBeNull()
+  })
+})
+
+describe('unplayed rounds report no score', () => {
+  it('does not read the "-" placeholder as even par', () => {
+    // J.J. Spaun withdrew after R1: ESPN sends R2 as value 0 / displayValue '-'.
+    // That is "no score", not a level-par round.
+    const c = competitor([ls(1, 76, '+4', 18), { period: 2, value: 0, displayValue: '-' }])
+    const [player] = playersFromCompetitors([c])
+    expect(player.r1Strokes).toBe(4)
+    expect(player.r2Strokes).toBeNull()
+    expect(player.status).toBe('wd')
+  })
+
+  it('reports null for a bare placeholder round', () => {
+    const c = competitor([ls(1, 70, 'E', 18), ls(2, 68, '-2', 18), bare(3)])
+    const [player] = playersFromCompetitors([c])
+    expect(player.r2Strokes).toBe(-2)
+    expect(player.r3Strokes).toBeNull()
   })
 })

@@ -266,10 +266,12 @@ export function playersFromCompetitors(competitors: RawCompetitor[]): EspnPlayer
       thru,
       position: c.order != null ? String(c.order) : null,
       teeTime,
-      r1Strokes: r1 ? parseRelPar(r1.displayValue) : null,
-      r2Strokes: r2 ? parseRelPar(r2.displayValue) : null,
-      r3Strokes: r3 ? parseRelPar(r3.displayValue) : null,
-      r4Strokes: r4 ? parseRelPar(r4.displayValue) : null,
+      // An unplayed round carries displayValue '-' , which parseRelPar reads as even
+      // par. Only report a score for rounds that were actually played.
+      r1Strokes: isRoundPlayed(r1) ? parseRelPar(r1!.displayValue) : null,
+      r2Strokes: isRoundPlayed(r2) ? parseRelPar(r2!.displayValue) : null,
+      r3Strokes: isRoundPlayed(r3) ? parseRelPar(r3!.displayValue) : null,
+      r4Strokes: isRoundPlayed(r4) ? parseRelPar(r4!.displayValue) : null,
       holeScores: {
         r1: extractHoleScores(r1),
         r2: extractHoleScores(r2),

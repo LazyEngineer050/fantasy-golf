@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { computeWinnings, DEFAULT_PAYOUT, type PayoutConfig } from '@/lib/winnings'
 import { fetchScoreboardPayload } from '@/lib/espn-browser'
+import { isRoundUnderway, showRoundScore, upcomingRoundColumn } from '@/lib/leaderboard'
 import type { TeamStanding } from '@/lib/types'
 
 // Keep a rolling history of total_strokes snapshots (capped at 10 refreshes).
@@ -473,11 +474,24 @@ export default function Leaderboard({
                 standings.some((s) => s.picks.some((p) => p[`r${r}_strokes` as RKey] !== null))
               )
               const currentRound = playedRounds[0] ?? null // highest round with data
-              const colSpan = 2 + playedRounds.length
 
               // If any player has started today, use only started players (new round in progress).
               // Between rounds nobody has thru, so carry forward previous round scores instead.
               const anyStartedToday = allPicks.some((p) => p.thru !== null)
+
+              // A round is only "underway" when somebody is actually on the course.
+              // Between rounds nobody has a thru value — that must NOT be read as
+              // "hasn't teed off yet", or completed scores get blanked out.
+              const roundUnderway = isRoundUnderway(allPicks)
+              // Between rounds any tee times belong to the NEXT round, so give it its
+              // own column rather than hanging them off the finished round.
+              const upcomingRound = upcomingRoundColumn({
+                currentRound,
+                roundUnderway,
+                anyTeeTimes: allPicks.some((p) => p.tee_time),
+              })
+              const displayRounds = upcomingRound ? [upcomingRound, ...playedRounds] : playedRounds
+              const colSpan = 2 + displayRounds.length
               const turdPicks = anyStartedToday
                 ? allPicks.filter((p) => p.thru !== null && p.today_strokes !== null)
                 : allPicks.filter((p) => p.today_strokes !== null)
@@ -584,7 +598,7 @@ export default function Leaderboard({
                           <tr className="border-t border-gray-800 bg-gray-900/60">
                             <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-full">Player</th>
                             <th className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Total</th>
-                            {playedRounds.map((r) => (
+                            {displayRounds.map((r) => (
                               <th key={r} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap last:pr-4">R{r}</th>
                             ))}
                           </tr>
@@ -599,7 +613,6 @@ export default function Leaderboard({
                               const isOverallLeader = overallLeaderPlayerIds.has(pick.player_id)
                               const isLive = pick.thru && pick.thru !== 'F'
 
-                              const notStartedToday = !pick.thru && pick.tee_time
 
                               return (
                                 <tr key={pick.player_id} className={`hover:bg-gray-800/50 transition-colors ${isOverallLeader ? 'bg-yellow-950/40' : 'bg-gray-900'}`}>
@@ -622,15 +635,19 @@ export default function Leaderboard({
                                     {fmtScore(pick.total_strokes)}
                                   </td>
                                   {/* All played rounds, most recent first */}
-                                  {playedRounds.map((r, ri) => {
-                                    const rawScore = pick[`r${r}_strokes` as RKey]
+                                  {displayRounds.map((r, ri) => {
+                                    const isUpcoming = r === upcomingRound
+                                    const rawScore = isUpcoming ? null : pick[`r${r}_strokes` as RKey]
                                     const isActiveRound = r === currentRound && isLive
-                                    // Hide score for the active round if player hasn't teed off yet
-                                    // (ESPN returns 0/E as a placeholder before they start)
-                                    const score = (r === currentRound && !pick.thru) ? null : rawScore
-                                    const showTeeTime = r === currentRound && !!notStartedToday
+                                    // Hide the score only while the round is actually being
+                                    // played and this player hasn't teed off (ESPN returns 0/E
+                                    // as a placeholder before they start). A finished round
+                                    // between rounds keeps its score.
+                                    const visible = showRoundScore({ round: r, currentRound, roundUnderway, thru: pick.thru })
+                                    const score = visible ? rawScore : null
+                                    const showTeeTime = !!pick.tee_time && (isUpcoming || !visible)
                                     return (
-                                      <td key={r} className={`px-3 py-2.5 text-center whitespace-nowrap ${ri === playedRounds.length - 1 ? 'pr-4' : ''} ${isActiveRound ? 'bg-green-950/30' : ''}`}>
+                                      <td key={r} className={`px-3 py-2.5 text-center whitespace-nowrap ${ri === displayRounds.length - 1 ? 'pr-4' : ''} ${isActiveRound ? 'bg-green-950/30' : ''}`}>
                                         <div className={`tabular-nums font-medium ${scoreClass(score)}`}>
                                           {fmtScore(score)}
                                         </div>
@@ -678,6 +695,12 @@ function PlayerBoard({ standings, onSelectPlayer }: { standings: TeamStanding[];
 
   const unstarted = allPicks.filter((p) => p.total_strokes === null)
 
+  // Between rounds nobody has a thru value; the last round's score is still the
+  // right thing to show. Only blank it out when play is underway and this player
+  // has not teed off yet.
+  const roundUnderway = isRoundUnderway(allPicks)
+  const showToday = (p: { thru: string | null }) => !!p.thru || !roundUnderway
+
   const bestScore = rows.length > 0 ? rows[0].total_strokes : null
   const worstScore = rows.length > 0 ? rows[rows.length - 1].total_strokes : null
   const dumpsterFirePlayerIds = new Set(
@@ -723,8 +746,8 @@ function PlayerBoard({ standings, onSelectPlayer }: { standings: TeamStanding[];
               <td className={`px-4 py-2.5 text-center tabular-nums font-bold ${isLeader ? 'text-yellow-300' : scoreClass(p.total_strokes)}`}>
                 {fmtScore(p.total_strokes)}
               </td>
-              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(p.thru ? p.today_strokes : null)}`}>
-                {p.thru ? fmtScore(p.today_strokes) : '—'}
+              <td className={`px-4 py-2.5 text-center tabular-nums ${scoreClass(showToday(p) ? p.today_strokes : null)}`}>
+                {showToday(p) ? fmtScore(p.today_strokes) : '—'}
               </td>
               <td className="px-4 py-2.5 text-center text-gray-400 text-xs pr-4">{p.thru ?? (p.tee_time ?? '—')}</td>
             </tr>
