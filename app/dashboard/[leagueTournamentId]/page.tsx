@@ -82,7 +82,7 @@ export default async function DashboardPage({ params }: PageProps) {
 
   const [playersResult, scoresResult] = await Promise.all([
     playerIds.length > 0
-      ? supabase.from('players').select('id, name').in('id', playerIds)
+      ? supabase.from('players').select('id, name, espn_player_id').in('id', playerIds)
       : Promise.resolve({ data: [] }),
     playerIds.length > 0
       ? supabase
@@ -93,11 +93,11 @@ export default async function DashboardPage({ params }: PageProps) {
       : Promise.resolve({ data: [] }),
   ])
 
-  type PlayerRow = { id: string; name: string }
+  type PlayerRow = { id: string; name: string; espn_player_id: string | null }
 
-  const playerNameMap = new Map(
-    ((playersResult.data ?? []) as unknown as PlayerRow[]).map((p) => [p.id, p.name])
-  )
+  const playerRows = (playersResult.data ?? []) as unknown as PlayerRow[]
+  const playerNameMap = new Map(playerRows.map((p) => [p.id, p.name]))
+  const espnIdMap = new Map(playerRows.map((p) => [p.id, p.espn_player_id]))
   const scoreMap = new Map(
     ((scoresResult.data ?? []) as unknown as ScoreRow[]).map((s) => [s.player_id, s])
   )
@@ -107,6 +107,7 @@ export default async function DashboardPage({ params }: PageProps) {
     const score = scoreMap.get(p.player_id)
     const entry = {
       player_id: p.player_id,
+      espn_player_id: espnIdMap.get(p.player_id) ?? null,
       player_name: playerNameMap.get(p.player_id) ?? 'Unknown',
       draft_round: p.round,
       total_strokes: score?.total_strokes ?? null,
@@ -154,6 +155,7 @@ export default async function DashboardPage({ params }: PageProps) {
     <Leaderboard
       leagueTournamentId={leagueTournamentId}
       tournamentId={tournamentId}
+      espnEventId={lt.tournaments?.espn_event_id ?? null}
       tournamentName={lt.tournaments?.name ?? 'Tournament'}
       leagueStatus={lt.status}
       standings={standings}

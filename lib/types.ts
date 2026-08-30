@@ -221,6 +221,8 @@ export interface TeamStanding {
   rank: number | null
   picks: Array<{
     player_id: string
+    /** ESPN athlete id — needed to look up tee times from ESPN's core API */
+    espn_player_id: string | null
     player_name: string
     draft_round: number
     total_strokes: number | null

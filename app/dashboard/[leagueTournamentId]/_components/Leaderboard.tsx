@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { computeWinnings, DEFAULT_PAYOUT, type PayoutConfig } from '@/lib/winnings'
 import { fetchScoreboardPayload } from '@/lib/espn-browser'
-import { isRoundUnderway, showRoundScore, upcomingRoundColumn } from '@/lib/leaderboard'
+import { isRoundUnderway, playedRoundsFor, showRoundScore, upcomingRoundColumn } from '@/lib/leaderboard'
+import { fetchTeeTimes } from '@/lib/espn-teetimes'
 import type { TeamStanding } from '@/lib/types'
 
 // Keep a rolling history of total_strokes snapshots (capped at 10 refreshes).
@@ -15,6 +16,7 @@ const HISTORY_CAP = 10
 interface Props {
   leagueTournamentId: string
   tournamentId: string
+  espnEventId: string | null
   tournamentName: string
   leagueStatus: 'drafting' | 'live' | 'completed'
   standings: TeamStanding[]
@@ -191,6 +193,7 @@ function scoreClass(n: number | null): string {
 export default function Leaderboard({
   leagueTournamentId,
   tournamentId,
+  espnEventId,
   tournamentName,
   leagueStatus,
   standings: initialStandings,
@@ -290,6 +293,49 @@ export default function Leaderboard({
   const standingsRef = useRef(standings)
   useEffect(() => { standingsRef.current = standings }, [standings])
 
+  // Tee times for the upcoming round. The scoreboard feed drops them for rounds
+  // that haven't been played, so pull them from ESPN's core API instead — once,
+  // while play is stopped, since they don't change.
+  const teeTimesFetchedFor = useRef<number | null>(null)
+  useEffect(() => {
+    if (!espnEventId) return
+    if (statusRef.current === 'completed') return
+
+    const allPicks = standings.flatMap((s) => s.picks)
+    if (allPicks.length === 0) return
+
+    // Which round are the outstanding tee times for? While play is on it is the
+    // round in progress (later groups are still waiting); between rounds it is
+    // the one about to start.
+    const played = playedRoundsFor(allPicks)
+    const round = isRoundUnderway(allPicks) ? (played[0] ?? 1) : (played[0] ?? 0) + 1
+    if (round < 1 || round > 4) return
+    if (teeTimesFetchedFor.current === round) return
+
+    // Only players who have not teed off and have no tee time yet.
+    const ids = [...new Set(
+      allPicks
+        .filter((p) => !p.thru && !p.tee_time)
+        .map((p) => p.espn_player_id)
+        .filter((id): id is string => !!id)
+    )]
+    if (ids.length === 0) return
+
+    teeTimesFetchedFor.current = round
+    let cancelled = false
+    fetchTeeTimes(espnEventId, ids, round).then((times) => {
+      if (cancelled || times.size === 0) return
+      setStandings((prev) => prev.map((s) => ({
+        ...s,
+        picks: s.picks.map((p) => {
+          const t = p.espn_player_id ? times.get(p.espn_player_id) : undefined
+          return t ? { ...p, tee_time: t } : p
+        }),
+      })))
+    })
+    return () => { cancelled = true }
+  }, [espnEventId, standings])
+
   // Poll every 30 seconds: refresh ESPN data, then fetch updated team + player scores.
   // This drives the fire/ice movement icons and keeps thru/tee_time current.
   // Stops automatically when the league is marked completed.
@@ -341,7 +387,9 @@ export default function Leaderboard({
               rank: t?.rank ?? s.rank,
               picks: s.picks.map((p) => {
                 const ps = playerMap.get(p.player_id)
-                return ps ? { ...p, ...ps } : p
+                // Keep a tee time we fetched from ESPN's core API when the
+                // server (which reads the scoreboard) has none.
+                return ps ? { ...p, ...ps, tee_time: ps.tee_time ?? p.tee_time } : p
               }),
             }
           })
@@ -468,11 +516,8 @@ export default function Leaderboard({
               )
 
               // All played rounds, most recent first (only rounds with any data)
-              const roundKeys = [4, 3, 2, 1] as const
               type RKey = 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes'
-              const playedRounds = roundKeys.filter((r) =>
-                standings.some((s) => s.picks.some((p) => p[`r${r}_strokes` as RKey] !== null))
-              )
+              const playedRounds = playedRoundsFor(standings.flatMap((s) => s.picks))
               const currentRound = playedRounds[0] ?? null // highest round with data
 
               // If any player has started today, use only started players (new round in progress).

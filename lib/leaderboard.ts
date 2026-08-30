@@ -49,3 +49,17 @@ export function upcomingRoundColumn(opts: {
   if (currentRound === null || currentRound >= 4) return null
   return currentRound + 1
 }
+
+export type RoundScoreKey = 'r1_strokes' | 'r2_strokes' | 'r3_strokes' | 'r4_strokes'
+
+/**
+ * Rounds that have a score for at least one player, highest first.
+ * A round nobody has played yet is absent, so it gets no column.
+ */
+export function playedRoundsFor(
+  picks: Array<Partial<Record<RoundScoreKey, number | null>>>
+): number[] {
+  return [4, 3, 2, 1].filter((r) =>
+    picks.some((p) => p[`r${r}_strokes` as RoundScoreKey] != null)
+  )
+}
